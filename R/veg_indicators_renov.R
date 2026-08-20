@@ -49,10 +49,14 @@ wfo_backbone <- read_delim("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_p
 ano_sp_matched <- WFO.match.fuzzyjoin(spec.data = ano_species_distinct$scientific_name_for_matching, WFO.data = wfo_backbone)
 
 # filter for species with matches in WFO
-
 # 1. new.accepted == TRUE
 # 2. old.name is populated
 # 3. otherwise scientificName is accepted.
 
+ano_sp_matched_accepted <- ano_sp_matched |> 
+  mutate(accepted_name = if_else(
+    New.accepted == TRUE & !Old.name == "", Old.name, scientificName
+    )
+  )
 
 
