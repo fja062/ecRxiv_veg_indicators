@@ -77,29 +77,38 @@ tyler_prepared <- tyler_prepared |>
 # figure out the duplicates
 setdiff(tyler_prepared, tyler_prepared |> distinct(spec.name))
 
+# join prepared names back onto the tyler indicator dataset
+ind_tyler <- ind_tyler |> 
+  left_join(tyler_prepared |> select(spec.full, spec.name),
+                       by = join_by(Scientific_name == spec.full))
+
 
 # split into two datasets for species matching
 
-ind_tyler_a_k <- ind_tyler |> filter(str_detect(Scientific_name, "^[A-K]"))
-ind_tyler_l_z <- ind_tyler |> filter(str_detect(Scientific_name, "^[L-Z]"))
+ind_tyler_a_k <- ind_tyler |> filter(str_detect(spec.name, "^[A-K]"))
+ind_tyler_l_z <- ind_tyler |> filter(str_detect(spec.name, "^[L-Z]"))
 
 
 # standardise names to the WFO backbone
-tyler_sp_matched_a_k <- WFO.match.fuzzyjoin(spec.data = ind_tyler_a_k$Scientific_name, WFO.data = wfo_backbone)
-tyler_sp_matched_l_z <- WFO.match.fuzzyjoin(spec.data = ind_tyler_l_z$Scientific_name, WFO.data = wfo_backbone)
+tyler_sp_matched_a_k <- WFO.match.fuzzyjoin(spec.data = ind_tyler_a_k$spec.name, WFO.data = wfo_backbone)
+tyler_sp_matched_l_z <- WFO.match.fuzzyjoin(spec.data = ind_tyler_l_z$spec.name, WFO.data = wfo_backbone)
 
+# bind rows after name matching
 tyler_sp_matched <- bind_rows(tyler_sp_matched_a_k, tyler_sp_matched_l_z)
 
-tyler_sp_matched |> 
+# create accepted name column according to latest taxonomical nomenclature
+tyler_sp_matched <- tyler_sp_matched |> 
   mutate(accepted_name = if_else(
     New.accepted == TRUE & !Old.name == "", Old.name, scientificName
-  )
-  ) |> 
+  )) |> 
   distinct(accepted_name, spec.name.ORIG)
     
+# bind new species names onto indicator dataset
 
+ind_tyler_matched <- ind_tyler |> 
+  left_join(tyler_sp_matched, by = join_by(spec.name == spec.name.ORIG))
 
-
+ind_tyler_matched |> summarise(n = n_distinct(accepted_name))
 
   
   
