@@ -82,9 +82,13 @@ ind_tyler <- ind_tyler |>
   left_join(tyler_prepared |> select(spec.full, spec.name),
                        by = join_by(Scientific_name == spec.full))
 
+# check for duplicates
+ind_tyler |> 
+  group_by(spec.name) |> 
+  filter(n() > 1)
+
 
 # split into two datasets for species matching
-
 ind_tyler_a_k <- ind_tyler |> filter(str_detect(spec.name, "^[A-K]"))
 ind_tyler_l_z <- ind_tyler |> filter(str_detect(spec.name, "^[L-Z]"))
 
@@ -108,81 +112,91 @@ tyler_sp_matched <- tyler_sp_matched |>
 ind_tyler_matched <- ind_tyler |> 
   left_join(tyler_sp_matched, by = join_by(spec.name == spec.name.ORIG))
 
-ind_tyler_matched |> summarise(n = n_distinct(accepted_name))
 
+ind_tyler_matched |> filter(is.na(accepted_name))
+
+ind_tyler_matched <- ind_tyler_matched |> 
+  filter(!is.na(accepted_name)) # filter out species that did not match (Hieracium sect. for example)
+
+
+
+ind_tyler_matched |> 
+  group_by(accepted_name) |> 
+  filter(n() > 1)
+
+rm(ind_tyler_a_k, ind_tyler_l_z, tyler_sp_matched_a_k, tyler_sp_matched_l_z, tyler_sp_matched, tyler_prepared) 
   
-  
-names(ind.Tyler)
-names(ind.Tyler)[1] <- 'species'
-ind.Tyler$species <- as.factor(ind.Tyler$species)
-summary(ind.Tyler$species)
-ind.Tyler <- ind.Tyler[!is.na(ind.Tyler$species),] # removing species-NAs
-ind.Tyler[,'species.orig'] <- ind.Tyler[,'species'] # make a backup of the original species variable
-ind.Tyler[,'species'] <- word(ind.Tyler[,'species'], 1,2) # trimming away sub-species & co, and descriptor info
-
-ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-ind.Tyler.dup <- ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-ind.Tyler[ind.Tyler$species %in% ind.Tyler.dup,c("Moisture","Nitrogen","species.orig","species")]
-ind.Tyler <- ind.Tyler %>% filter( !(species.orig %in% list("Ammophila arenaria x Calamagrostis epigejos",
-                                                            "Anemone nemorosa x ranunculoides",
-                                                            "Armeria maritima ssp. elongata",
-                                                            "Asplenium trichomanes ssp. quadrivalens",
-                                                            "Calystegia sepium ssp. spectabilis",
-                                                            "Campanula glomerata 'Superba'",
-                                                            "Dactylorhiza maculata ssp. fuchsii",
-                                                            "Erigeron acris ssp. droebachensis",
-                                                            "Erigeron acris ssp. politus",
-                                                            "Erysimum cheiranthoides L. ssp. alatum",
-                                                            "Euphrasia nemorosa x stricta var. brevipila",
-                                                            "Galium mollugo x verum",
-                                                            "Geum rivale x urbanum",
-                                                            "Hylotelephium telephium (ssp. maximum)",
-                                                            "Juncus alpinoarticulatus ssp. rariflorus",
-                                                            "Lamiastrum galeobdolon ssp. argentatum",
-                                                            "Lathyrus latifolius ssp. heterophyllus",
-                                                            "Medicago sativa ssp. falcata",
-                                                            "Medicago sativa ssp. x varia",
-                                                            "Monotropa hypopitys ssp. hypophegea",
-                                                            "Ononis spinosa ssp. hircina",
-                                                            "Ononis spinosa ssp. procurrens",
-                                                            "Pilosella aurantiaca ssp. decolorans",
-                                                            "Pilosella aurantiaca ssp. dimorpha",
-                                                            "Pilosella cymosa ssp. gotlandica",
-                                                            "Pilosella cymosa ssp. praealta",
-                                                            "Pilosella officinarum ssp. peleteranum",
-                                                            "Poa x jemtlandica (Almq.) K. Richt.",
-                                                            "Poa x herjedalica Harry Sm.",
-                                                            "Ranunculus peltatus ssp. baudotii",
-                                                            "Sagittaria natans x sagittifolia",
-                                                            "Salix repens ssp. rosmarinifolia",
-                                                            "Stellaria nemorum L. ssp. montana",
-                                                            "Trichophorum cespitosum ssp. germanicum")
-) )
-
-# checking duplicates again
-ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-ind.Tyler.dup <- ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-ind.Tyler[ind.Tyler$species %in% ind.Tyler.dup,c("Moisture","Nitrogen","species.orig","species")]
-# getting rid of sect. for Hieracium
-ind.Tyler <- ind.Tyler %>% mutate(species=gsub("sect. ","",species.orig))
-ind.Tyler[,'species'] <- word(ind.Tyler[,'species'], 1,2)
-
-ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-ind.Tyler.dup <- ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-ind.Tyler[ind.Tyler$species %in% ind.Tyler.dup,c("Moisture","Nitrogen","species.orig","species")]
-# only hybrids left -> get rid of these
-ind.Tyler <- ind.Tyler[!duplicated(ind.Tyler[,'species']),]
-ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-
-ind.Tyler$species <- as.factor(ind.Tyler$species)
-summary(ind.Tyler$species)
-# no duplicates left
-
-# for compatibility with functional plant indicator code for other ecosystems
-ind.dat <- ind.Tyler
-rm(ind.Tyler)
-
-ind.dat$species <- as.factor(ind.dat$species)
+#names(ind.Tyler)
+#names(ind.Tyler)[1] <- 'species'
+#ind.Tyler$species <- as.factor(ind.Tyler$species)
+#summary(ind.Tyler$species)
+#ind.Tyler <- ind.Tyler[!is.na(ind.Tyler$species),] # removing species-NAs
+#ind.Tyler[,'species.orig'] <- ind.Tyler[,'species'] # make a backup of the original species variable
+#ind.Tyler[,'species'] <- word(ind.Tyler[,'species'], 1,2) # trimming away sub-species & co, and descriptor info
+#
+#ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
+#ind.Tyler.dup <- ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
+#ind.Tyler[ind.Tyler$species %in% ind.Tyler.dup,c("Moisture","Nitrogen","species.orig","species")]
+#ind.Tyler <- ind.Tyler %>% filter( !(species.orig %in% list("Ammophila arenaria x Calamagrostis epigejos",
+#                                                            "Anemone nemorosa x ranunculoides",
+#                                                            "Armeria maritima ssp. elongata",
+#                                                            "Asplenium trichomanes ssp. quadrivalens",
+#                                                            "Calystegia sepium ssp. spectabilis",
+#                                                            "Campanula glomerata 'Superba'",
+#                                                            "Dactylorhiza maculata ssp. fuchsii",
+#                                                            "Erigeron acris ssp. droebachensis",
+#                                                            "Erigeron acris ssp. politus",
+#                                                            "Erysimum cheiranthoides L. ssp. alatum",
+#                                                            "Euphrasia nemorosa x stricta var. brevipila",
+#                                                            "Galium mollugo x verum",
+#                                                            "Geum rivale x urbanum",
+#                                                            "Hylotelephium telephium (ssp. maximum)",
+#                                                            "Juncus alpinoarticulatus ssp. rariflorus",
+#                                                            "Lamiastrum galeobdolon ssp. argentatum",
+#                                                            "Lathyrus latifolius ssp. heterophyllus",
+#                                                            "Medicago sativa ssp. falcata",
+#                                                            "Medicago sativa ssp. x varia",
+#                                                            "Monotropa hypopitys ssp. hypophegea",
+#                                                            "Ononis spinosa ssp. hircina",
+#                                                            "Ononis spinosa ssp. procurrens",
+#                                                            "Pilosella aurantiaca ssp. decolorans",
+#                                                            "Pilosella aurantiaca ssp. dimorpha",
+#                                                            "Pilosella cymosa ssp. gotlandica",
+#                                                            "Pilosella cymosa ssp. praealta",
+#                                                            "Pilosella officinarum ssp. peleteranum",
+#                                                            "Poa x jemtlandica (Almq.) K. Richt.",
+#                                                            "Poa x herjedalica Harry Sm.",
+#                                                            "Ranunculus peltatus ssp. baudotii",
+#                                                            "Sagittaria natans x sagittifolia",
+#                                                            "Salix repens ssp. rosmarinifolia",
+#                                                            "Stellaria nemorum L. ssp. montana",
+#                                                            "Trichophorum cespitosum ssp. germanicum")
+#) )
+#
+## checking duplicates again
+#ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
+#ind.Tyler.dup <- ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
+#ind.Tyler[ind.Tyler$species %in% ind.Tyler.dup,c("Moisture","Nitrogen","species.orig","species")]
+## getting rid of sect. for Hieracium
+#ind.Tyler <- ind.Tyler %>% mutate(species=gsub("sect. ","",species.orig))
+#ind.Tyler[,'species'] <- word(ind.Tyler[,'species'], 1,2)
+#
+#ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
+#ind.Tyler.dup <- ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
+#ind.Tyler[ind.Tyler$species %in% ind.Tyler.dup,c("Moisture","Nitrogen","species.orig","species")]
+## only hybrids left -> get rid of these
+#ind.Tyler <- ind.Tyler[!duplicated(ind.Tyler[,'species']),]
+#ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
+#
+#ind.Tyler$species <- as.factor(ind.Tyler$species)
+#summary(ind.Tyler$species)
+## no duplicates left
+#
+## for compatibility with functional plant indicator code for other ecosystems
+#ind.dat <- ind.Tyler
+#rm(ind.Tyler)
+#
+#ind.dat$species <- as.factor(ind.dat$species)
 #summary(ind.dat$species)
 #head(ind.dat)
 
@@ -193,6 +207,8 @@ ind.dat$species <- as.factor(ind.dat$species)
 
 #### ANO monitoring data
 
+
+
 # load in ano data
 ano_sp <- st_read("P:/41201785_okologisk_tilstand_2022_2023/data/ANO/naturovervaking_eksport.gdb",
                   layer="ANO_Art", quiet = T)
@@ -200,19 +216,28 @@ ano_geo <- st_read("P:/41201785_okologisk_tilstand_2022_2023/data/ANO/naturoverv
                    layer="ANO_SurveyPoint", quiet = T)
 
 # extract species data
-ano_species_distinct <- distinct(ano_sp, art_navn) |> 
+ano_sp_processed <- ano_sp |> 
+  tibble() |> 
   mutate(scientific_name_original = str_replace_all(art_navn, "_", " ")) |> 
   separate_wider_delim(scientific_name_original, delim = " ", names = c("genus", "species", "subspecies"), too_few = "align_start", cols_remove = FALSE) |> 
-  mutate(scientific_name_subsp = if_else(
+  mutate(scientific_name_for_matching = if_else(
     # select subspecies
-    !is.na(subspecies) & !grepl("agg.", scientific_name_original), paste(genus, species, "subsp.", subspecies), 
-    # select aggregates
-    if_else(!is.na(subspecies) & grepl("agg.", scientific_name_original), paste(genus, species, subspecies),
+    !is.na(subspecies) & !grepl("agg.", scientific_name_original) & !grepl("sp.$", scientific_name_original), paste(genus, species, "subsp.", subspecies), 
+    # select aggregates 
+    # CURRENTLY EXCLUDING AGGREGATE
+    #if_else(!is.na(subspecies) & grepl("agg.", scientific_name_original), paste(genus, species, subspecies),
             # and species identified to species level
-            paste(genus, species))
-  )) |> 
-  mutate(scientific_name_for_matching = paste(genus, species))
+            paste(genus, species)#)
+  ),
+  scientific_name_for_matching = if_else(grepl("^sp.$", species), paste0(genus), scientific_name_for_matching)) |> 
+  # capitalise first letter of genus
+  mutate(scientific_name_for_matching = str_to_sentence(scientific_name_for_matching))
 
+ano_species_distinct <- distinct(ano_sp_processed, art_navn, .keep_all = TRUE)
+
+ano_species_distinct |> 
+  group_by(scientific_name_for_matching) |> 
+    filter(n() > 1)
 
 # check for incongruencies
 ano_sp_prepared <- WFO.prepare(ano_species_distinct$scientific_name_for_matching)
@@ -229,9 +254,92 @@ ano_sp_matched <- WFO.match.fuzzyjoin(spec.data = ano_species_distinct$scientifi
 ano_sp_matched_accepted <- ano_sp_matched |> 
   mutate(accepted_name = if_else(
     New.accepted == TRUE & !Old.name == "", Old.name, scientificName
-  )
-  ) |> 
+  )) |> 
   distinct(accepted_name, spec.name.ORIG)
+
+
+# run through backbone clean
+ano_xtras <- ano_species_distinct |> 
+  semi_join(ano_sp_matched_accepted |> 
+                                    group_by(accepted_name) |> 
+                                    filter(n() > 1), by = join_by(scientific_name_for_matching == spec.name.ORIG)) |> 
+  mutate(scientific_name_for_matching_edit = str_remove(scientific_name_for_matching, "subsp\\..*")) 
+
+ano_xtras_matched <- WFO.match.fuzzyjoin(spec.data = ano_xtras$scientific_name_for_matching_edit, WFO.data = wfo_backbone)
+
+result <- ano_xtras_matched |>
+  group_by(spec.name.ORIG) |>
+  mutate(
+    has_accepted_old = any(
+      New.accepted == TRUE &
+        !is.na(Old.name) &
+        Old.name != ""
+    ),
+    
+    scientific_candidates = list(unique(
+      scientificName[
+        New.accepted == FALSE &
+          (is.na(Old.name) | Old.name == "")
+      ]
+    )),
+    
+    n_scientific_candidates = length(scientific_candidates[[1]]),
+    
+    multiple_scientific_matches =
+      !has_accepted_old &
+      n_scientific_candidates > 1,
+    
+    accepted_name = if_else(
+      has_accepted_old,
+      
+      Old.name[
+        New.accepted == TRUE &
+          !is.na(Old.name) &
+          Old.name != ""
+      ][1],
+      
+      scientificName[
+        New.accepted == FALSE &
+          (is.na(Old.name) | Old.name == "")
+      ][1]
+    )
+  ) |>
+  reframe(
+    accepted_name = first(accepted_name),
+    scientific_candidates = first(scientific_candidates),
+    n_scientific_candidates = first(n_scientific_candidates),
+    multiple_scientific_matches = first(multiple_scientific_matches)
+  )
+
+
+ano_xtras
+
+# join misfits back onto ano accepted list
+ano_sp_matched_accepted <- ano_sp_matched_accepted |> 
+  filter(!is.na(accepted_name)) |> 
+  bind_rows(ano_xtras_matched_accepted) |> 
+  tibble()
+
+
+# fit back onto the ano sp data
+ano_species_distinct |> 
+  full_join(ano_sp_matched_accepted, by = join_by(scientific_name_for_matching == spec.name.ORIG))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #head(ANO.sp)
