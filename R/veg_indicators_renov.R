@@ -8,6 +8,7 @@ library(formattable)
 library(sf)
 library(WorldFlora)
 library(zen4R)
+library(tidylog)
 
 
 
@@ -210,16 +211,146 @@ GRUK_polygoner <- read_excel("P:/41201785_okologisk_tilstand_2022_2023/data/GRUK
 ## GRUK species data handling
 GRUK_species <- GRUK_species |> 
   rename(norsk_navn = `Norsk navn`,
-         latinsk_navn = `Latinsk navn`,
+         scientific_name = `Latinsk navn`,
          art_dekning = `Dekning %`)
 
 
-
 # fix species names
-unique(as.factor(GRUK_species$latinsk_navn))
-GRUK.species <- GRUK.species %>%
-  mutate(Species=word(Latinsknavn, 1, 2)) # lose subspecies
-unique(as.factor(GRUK.species$Species))
+GRUK_species <- GRUK_species |>
+  mutate(
+    scientific_name_original = scientific_name,
+    scientific_name = str_replace_all(scientific_name, "ssp\\.", "subsp."),
+    scientific_name = str_replace_all(scientific_name, " x ", " \u00D7 ")
+  ) |>
+  filter(!is.na(scientific_name), scientific_name != "") |>
+  tibble()
+
+GRUK_prepared_wfo <- WFO.prepare(GRUK_species$scientific_name)
+
+GRUK_prepared <- GRUK_prepared_wfo |>
+  mutate(
+    subspecies_epithet = if_else(!is.na(Authorship), word(Authorship, 1, 1), ""),
+    
+    # Attach subspecies epithet only if:
+    #   - we have an epithet
+    #   - AND Authorship does not contain "agg."
+    spec.name = if_else(
+      subspecies_epithet != "" & !str_detect(Authorship, "\\bagg\\.?"),
+      paste(spec.name, "subsp.", subspecies_epithet),
+      spec.name
+    ),
+   # # attach agg. info
+   # spec.name = if_else(
+   #   str_detect(Authorship, "\\bagg\\.?") & !str_detect(spec.name, "\\bagg\\.?"),
+   #   paste(spec.name, subspecies_epithet),  # just add "agg." as a trailing word
+   #   spec.name
+   # ),
+    
+    # Handle hybrids / ×
+    spec.name = if_else(grepl(" x$", spec.name), paste(spec.name, subspecies_epithet), spec.name),
+    spec.name = if_else(grepl("\u00D7$", spec.name), paste(spec.name, subspecies_epithet), spec.name),
+    spec.name = if_else(grepl("^\u00D7", Authorship), paste(spec.name, subspecies_epithet), spec.name),
+    
+    # Clean out 'sect.'
+    spec.name = spec.name |>
+      str_replace_all("\\bsect\\b\\.?", " ") |>
+      str_squish() |> 
+     str_to_sentence()
+  ) |>
+  rename(clean_string = spec.name) |>
+  distinct(spec.full, clean_string)
+
+
+## join prepared names back onto the GRUK indicator dataset
+#GRUK_species_merged <- GRUK_species |> 
+#  left_join(GRUK_prepared |> select(spec.full, clean_string),
+#            by = join_by(scientific_name == spec.full))
+
+
+# check for duplicates
+#GRUK_species_merged |> 
+#  group_by(clean_string) |> 
+#  filter(n() > 1)
+
+#GRUK_sp_unique <- GRUK_species_merged |> 
+#  distinct(clean_string)
+
+# standardise names to the WFO backbone
+GRUK_sp_matched <- WFO.match(spec.data = GRUK_prepared$clean_string,
+                             WFO.data = wfo_backbone,
+                             Fuzzy = 0.15,
+                             Fuzzy.max = 50,
+                             Fuzzy.one = FALSE)
+
+
+# create accepted name column according to latest taxonomical nomenclature
+GRUK_sp_clean <- GRUK_sp_matched |>
+  # First, store the original string clearly
+  rename(clean_string = spec.name.ORIG) |>
+  group_by(clean_string) |>
+  summarise(
+    # 1) Flag multiple scientificName suggestions
+    flag_multiple_suggestions = n_distinct(scientificName) > 1,
+    
+    # 2) Candidate accepted_name from Old.name when possible
+    accepted_name = case_when(
+      any(New.accepted == TRUE & Old.name != "") ~ 
+        # take one Old.name where New.accepted == TRUE and Old.name non-empty
+        Old.name[New.accepted == TRUE & Old.name != ""][1],
+      TRUE ~ 
+        # otherwise fall back to (one) scientificName
+        scientificName[1]
+    ),
+    
+    # 3) Where did accepted_name come from?
+    accepted_from = case_when(
+      any(New.accepted == TRUE & Old.name != "") ~ "Old.name",
+      TRUE ~ "scientificName"
+    ),
+    .groups = "drop"
+  )
+
+
+## add accepted name where only genus is available
+GRUK_sp_clean |> 
+  filter()
+
+
+
+# check the species that change name where many options were available
+GRUK_sp_clean |> filter(clean_string != accepted_name)
+GRUK_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name)
+
+
+
+# correct incorrect corrections. haha
+GRUK_sp_clean <- GRUK_sp_clean |> 
+  mutate(  flag_species_revert = case_when(
+    flag_multiple_suggestions == TRUE & clean_string != accepted_name ~ paste("reverted to original from", accepted_name),
+    TRUE ~ ""
+  ),
+         accepted_name = case_when(
+    flag_multiple_suggestions == TRUE & clean_string != accepted_name ~ clean_string,
+    TRUE ~ accepted_name
+  ))
+
+
+# bind new species names onto original dataset
+GRUK_species_clean <- left_join(GRUK_prepared, GRUK_sp_clean, by = "clean_string") |> 
+  full_join(GRUK_species, by = join_by(spec.full == scientific_name_original)) |> 
+  # filter out sect. species and subspecies
+  #filter(!grepl("subsp.", scientific_name_original)) |> 
+  distinct()
+
+
+  
+GRUK_species_clean |> 
+  filter(is.na(accepted_name)) |> 
+  tibble()
+
+
+
+
 
 # merge species data with indicators
 GRUK.species.ind <- merge(x=GRUK.species[,c("Species", "art_dekning", "ParentGlobalID","PolygonID","RuteID")], 
