@@ -57,53 +57,115 @@ Caching is also activated (from the top YAML), meaning that rendering to html wi
 
 #### Plant indicator data
 ind_tyler <- ind.Tyler |>
-  mutate(scientific_name_original = Scientific_name,
-         Scientific_name = str_replace_all(Scientific_name, "ssp.", "subsp."),
-         Scientific_name = str_replace_all(Scientific_name, " x ", " \u00D7 ")) |> 
-  filter(!is.na(Scientific_name), !Scientific_name == "") |> 
-  distinct(scientific_name_original, Scientific_name, Moisture, Nitrogen) |> 
+  rename(scientific_name = Scientific_name) |> 
+  mutate(scientific_name_original = scientific_name,
+         scientific_name = str_replace_all(scientific_name, "ssp.", "subsp."),
+         scientific_name = str_replace_all(scientific_name, " x ", " \u00D7 ")) |> 
+  filter(!is.na(scientific_name), !scientific_name == "") |> 
+  distinct(scientific_name_original, scientific_name, Moisture, Nitrogen) |> 
   tibble()
 
-tyler_prepared <- WFO.prepare(ind_tyler$Scientific_name)
+tyler_prepared_wfo <- WFO.prepare(ind_tyler$scientific_name)
 
-# fix hybrids
-tyler_prepared <- tyler_prepared |>
+# 
+tyler_prepared <- tyler_prepared_wfo |>
+  tibble() |> 
   mutate(
+    # first word of Authorship
     first_author = if_else(!is.na(Authorship), word(Authorship, 1, 1), ""),
-    spec.name = if_else(grepl(" x$", spec.name), paste0(spec.name, " ", first_author), spec.name),
-    spec.name = if_else(grepl("\u00D7$", spec.name), paste0(spec.name, " ", first_author), spec.name),
-    spec.name = if_else(grepl("^\u00D7", Authorship), paste0(spec.name, Authorship), spec.name),
+    
+    # 1) If first_author looks like a missed subspecies epithet (lowercase),
+    #    AND the name is NOT a hybrid, append "subsp. <first_author>"
+    spec.name = if_else(
+      first_author != "" &
+        str_detect(first_author, "^[a-z]") &               # starts lowercase
+        !str_detect(spec.name, " x$") &                    # not ending with " x"
+        !str_detect(spec.name, "\u00D7$") &                # not ending with "×"
+        !str_detect(spec.name, "^\\s*[x\u00D7]\\b"),       # not starting with x/× hybrid marker
+      paste(spec.name, "subsp.", first_author),
+      spec.name
+    ),
+    
+    # 2) Hybrids: append first_author after trailing " x" or "×"
+    spec.name = if_else(
+      str_detect(spec.name, " x$"),
+      paste0(spec.name, " ", first_author),
+      spec.name
+    ),
+    spec.name = if_else(
+      str_detect(spec.name, "\u00D7$"),
+      paste0(spec.name, " ", first_author),
+      spec.name
+    ),
+    spec.name = if_else(
+      str_detect(Authorship, "^\u00D7"),
+      paste0(spec.name, Authorship),
+      spec.name
+    ),
+    
+    # 3) Clean sect. and whitespace
     spec.name = spec.name |>
       str_replace_all("\\bsect\\b\\.?", " ") |>
       str_squish()
   ) |>
-  rename(clean_string = spec.name)
+  rename(clean_string = spec.name) |> 
+  distinct(spec.full, clean_string)
 
-
-# join prepared names back onto the tyler indicator dataset
-ind_tyler <- ind_tyler |> 
-  left_join(tyler_prepared |> select(spec.full, clean_string),
-                       by = join_by(Scientific_name == spec.full))
-
-# check for duplicates
-ind_tyler |> 
-  group_by(clean_string) |> 
-  filter(n() > 1)
 
 
 # standardise names to the WFO backbone
-tyler_sp_matched <- WFO.match(spec.data = ind_tyler$clean_string, 
-                              WFO.data = wfo_backbone, 
-                              Fuzzy = 2)
+tyler_sp_matched <- WFO.match(spec.data = tyler_prepared$clean_string,
+                             WFO.data = wfo_backbone,
+                             Fuzzy = 0.15,
+                             Fuzzy.max = 50,
+                             Fuzzy.one = FALSE)
+
 
 
 # create accepted name column according to latest taxonomical nomenclature
-tyler_sp_matched_for_join <- tyler_sp_matched |> 
-  mutate(accepted_name = if_else(
-    New.accepted == TRUE & !Old.name == "", Old.name, scientificName
-  )) |> 
-    rename(clean_string = spec.name.ORIG) |> 
-  distinct(accepted_name, clean_string)
+tyler_sp_clean <- tyler_sp_matched |>
+  # First, store the original string clearly
+  rename(clean_string = spec.name.ORIG) |>
+  group_by(clean_string) |>
+  summarise(
+    # 1) Flag multiple scientificName suggestions
+    flag_multiple_suggestions = n_distinct(scientificName) > 1,
+    
+    # 2) Candidate accepted_name from Old.name when possible
+    accepted_name = case_when(
+      any(New.accepted == TRUE & Old.name != "") ~ 
+        # take one Old.name where New.accepted == TRUE and Old.name non-empty
+        Old.name[New.accepted == TRUE & Old.name != ""][1],
+      TRUE ~ 
+        # otherwise fall back to (one) scientificName
+        scientificName[1]
+    ),
+    
+    # 3) Where did accepted_name come from?
+    accepted_from = case_when(
+      any(New.accepted == TRUE & Old.name != "") ~ "Old.name",
+      TRUE ~ "scientificName"
+    ),
+    .groups = "drop"
+  )
+
+
+# check the species that change name where many options were available
+tyler_sp_clean |> filter(clean_string != accepted_name) |> view()
+tyler_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name) |> view()
+
+
+# correct incorrect corrections. haha
+#tyler_sp_clean <- tyler_sp_clean |> 
+#  mutate(flag_species_revert = case_when(
+#    flag_multiple_suggestions == TRUE & clean_string != accepted_name ~ paste("reverted to #original from", accepted_name),
+#    TRUE ~ ""
+#  ),
+#  accepted_name = case_when(
+#    flag_multiple_suggestions == TRUE & clean_string != accepted_name ~ clean_string,
+#    TRUE ~ accepted_name
+#  ))
+
 
 
 # bind new species names onto indicator dataset
@@ -121,87 +183,13 @@ ind_tyler |>
   group_by(accepted_name) |> 
   filter(n() > 1)
 
-#names(ind.Tyler)
-#names(ind.Tyler)[1] <- 'species'
-#ind.Tyler$species <- as.factor(ind.Tyler$species)
-#summary(ind.Tyler$species)
-#ind.Tyler <- ind.Tyler[!is.na(ind.Tyler$species),] # removing species-NAs
-#ind.Tyler[,'species.orig'] <- ind.Tyler[,'species'] # make a backup of the original species variable
-#ind.Tyler[,'species'] <- word(ind.Tyler[,'species'], 1,2) # trimming away sub-species & co, and descriptor info
-#
-#ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-#ind.Tyler.dup <- ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-#ind.Tyler[ind.Tyler$species %in% ind.Tyler.dup,c("Moisture","Nitrogen","species.orig","species")]
-#ind.Tyler <- ind.Tyler %>% filter( !(species.orig %in% list("Ammophila arenaria x Calamagrostis epigejos",
-#                                                            "Anemone nemorosa x ranunculoides",
-#                                                            "Armeria maritima ssp. elongata",
-#                                                            "Asplenium trichomanes ssp. quadrivalens",
-#                                                            "Calystegia sepium ssp. spectabilis",
-#                                                            "Campanula glomerata 'Superba'",
-#                                                            "Dactylorhiza maculata ssp. fuchsii",
-#                                                            "Erigeron acris ssp. droebachensis",
-#                                                            "Erigeron acris ssp. politus",
-#                                                            "Erysimum cheiranthoides L. ssp. alatum",
-#                                                            "Euphrasia nemorosa x stricta var. brevipila",
-#                                                            "Galium mollugo x verum",
-#                                                            "Geum rivale x urbanum",
-#                                                            "Hylotelephium telephium (ssp. maximum)",
-#                                                            "Juncus alpinoarticulatus ssp. rariflorus",
-#                                                            "Lamiastrum galeobdolon ssp. argentatum",
-#                                                            "Lathyrus latifolius ssp. heterophyllus",
-#                                                            "Medicago sativa ssp. falcata",
-#                                                            "Medicago sativa ssp. x varia",
-#                                                            "Monotropa hypopitys ssp. hypophegea",
-#                                                            "Ononis spinosa ssp. hircina",
-#                                                            "Ononis spinosa ssp. procurrens",
-#                                                            "Pilosella aurantiaca ssp. decolorans",
-#                                                            "Pilosella aurantiaca ssp. dimorpha",
-#                                                            "Pilosella cymosa ssp. gotlandica",
-#                                                            "Pilosella cymosa ssp. praealta",
-#                                                            "Pilosella officinarum ssp. peleteranum",
-#                                                            "Poa x jemtlandica (Almq.) K. Richt.",
-#                                                            "Poa x herjedalica Harry Sm.",
-#                                                            "Ranunculus peltatus ssp. baudotii",
-#                                                            "Sagittaria natans x sagittifolia",
-#                                                            "Salix repens ssp. rosmarinifolia",
-#                                                            "Stellaria nemorum L. ssp. montana",
-#                                                            "Trichophorum cespitosum ssp. germanicum")
-#) )
-#
-## checking duplicates again
-#ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-#ind.Tyler.dup <- ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-#ind.Tyler[ind.Tyler$species %in% ind.Tyler.dup,c("Moisture","Nitrogen","species.orig","species")]
-## getting rid of sect. for Hieracium
-#ind.Tyler <- ind.Tyler %>% mutate(species=gsub("sect. ","",species.orig))
-#ind.Tyler[,'species'] <- word(ind.Tyler[,'species'], 1,2)
-#
-#ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-#ind.Tyler.dup <- ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-#ind.Tyler[ind.Tyler$species %in% ind.Tyler.dup,c("Moisture","Nitrogen","species.orig","species")]
-## only hybrids left -> get rid of these
-#ind.Tyler <- ind.Tyler[!duplicated(ind.Tyler[,'species']),]
-#ind.Tyler[duplicated(ind.Tyler[,'species']),"species"]
-#
-#ind.Tyler$species <- as.factor(ind.Tyler$species)
-#summary(ind.Tyler$species)
-## no duplicates left
-#
-## for compatibility with functional plant indicator code for other ecosystems
-#ind.dat <- ind.Tyler
-#rm(ind.Tyler)
-#
-#ind.dat$species <- as.factor(ind.dat$species)
-#summary(ind.dat$species)
-#head(ind.dat)
-
 
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
 # GRUK
 
-
+# read in data
 GRUK_species <- read_excel("P:/41201785_okologisk_tilstand_2022_2023/data/GRUK/GRUK_alle_artsdata_2020-24.xlsx", sheet="Arter i ruter")
 GRUK_ruter <- read_excel("P:/41201785_okologisk_tilstand_2022_2023/data/GRUK/GRUK_alle_artsdata_2020-24.xlsx", sheet="Ruter")
 GRUK_sirkler <- read_excel("P:/41201785_okologisk_tilstand_2022_2023/data/GRUK/GRUK_alle_artsdata_2020-24.xlsx", sheet="Sirkler")
@@ -261,20 +249,6 @@ GRUK_prepared <- GRUK_prepared_wfo |>
   distinct(spec.full, clean_string)
 
 
-## join prepared names back onto the GRUK indicator dataset
-#GRUK_species_merged <- GRUK_species |> 
-#  left_join(GRUK_prepared |> select(spec.full, clean_string),
-#            by = join_by(scientific_name == spec.full))
-
-
-# check for duplicates
-#GRUK_species_merged |> 
-#  group_by(clean_string) |> 
-#  filter(n() > 1)
-
-#GRUK_sp_unique <- GRUK_species_merged |> 
-#  distinct(clean_string)
-
 # standardise names to the WFO backbone
 GRUK_sp_matched <- WFO.match(spec.data = GRUK_prepared$clean_string,
                              WFO.data = wfo_backbone,
@@ -311,16 +285,9 @@ GRUK_sp_clean <- GRUK_sp_matched |>
   )
 
 
-## add accepted name where only genus is available
-GRUK_sp_clean |> 
-  filter()
-
-
-
 # check the species that change name where many options were available
 GRUK_sp_clean |> filter(clean_string != accepted_name)
 GRUK_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name)
-
 
 
 # correct incorrect corrections. haha
