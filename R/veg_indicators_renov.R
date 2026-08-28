@@ -9,6 +9,7 @@ library(sf)
 library(WorldFlora)
 library(zen4R)
 library(tidylog)
+library(rgbif)
 
 
 
@@ -23,7 +24,7 @@ wfo_backbone <- read_delim("C:/Users/francesca.jaroszynsk/OneDrive - NINA/nina_p
 ### 7.3. Dataset C
 Import plant indicator values from Tyler et al. (2021):
   ```{r}
-ind.Tyler <- readRDS("P:/41201785_okologisk_tilstand_2022_2023/data/functional plant indicators/ind.Tyler.RDS")
+ind_tyler <- readRDS("P:/41201785_okologisk_tilstand_2022_2023/data/functional plant indicators/ind.Tyler.RDS")
 ```
 
 The Swedish plant indicator values dataset published by Tyler et al. (2021) contains a large collection of plant indicators based on the Swedish flora, which is well representative of the Norwegian flora as well. From this set, we use indicator data for moisture and Moisture as these are thought to be subject to potential change due to ongoing pressures in the respective ecosystems (see details above under 3.4 'Impact factors').
@@ -56,18 +57,21 @@ Caching is also activated (from the top YAML), meaning that rendering to html wi
 ```{r dataHandling, results='hide', warning=F, message=F}
 
 #### Plant indicator data
-ind_tyler <- ind.Tyler |>
+ind_tyler <- ind_tyler |>
   rename(scientific_name = Scientific_name) |> 
   mutate(scientific_name_original = scientific_name,
-         scientific_name = str_replace_all(scientific_name, "ssp.", "subsp."),
-         scientific_name = str_replace_all(scientific_name, " x ", " \u00D7 ")) |> 
+         scientific_name = str_replace_all(scientific_name, "ssp.", "subsp."),         # correct subspecies labelling
+         scientific_name = str_replace_all(scientific_name, "\u00EB", "e"),
+         scientific_name = str_remove_all(scientific_name, "agg."),                    # remove aggregates
+         scientific_name = str_replace_all(scientific_name, " x ", " \u00D7 ")) |>     # correct hybrids labelling
   filter(!is.na(scientific_name), !scientific_name == "") |> 
-  distinct(scientific_name_original, scientific_name, Moisture, Nitrogen) |> 
+  distinct(scientific_name_original, scientific_name, Moisture, Nitrogen) |>           # select indicator here
   tibble()
 
+# prepare dataset for WFO matching
 tyler_prepared_wfo <- WFO.prepare(ind_tyler$scientific_name)
 
-# 
+# reconnect subspecies with corresponding species from authorship column
 tyler_prepared <- tyler_prepared_wfo |>
   tibble() |> 
   mutate(
@@ -103,17 +107,19 @@ tyler_prepared <- tyler_prepared_wfo |>
       spec.name
     ),
     
-    # 3) Clean sect. and whitespace
+    # 3) Clean "sect." and whitespace
     spec.name = spec.name |>
       str_replace_all("\\bsect\\b\\.?", " ") |>
-      str_squish()
+      str_squish() |> 
+      str_to_sentence()
   ) |>
   rename(clean_string = spec.name) |> 
+  # unique values in spec.full and clean_string only
   distinct(spec.full, clean_string)
 
 
 
-# standardise names to the WFO backbone
+# standardise names to the WFO backbone (slow)
 tyler_sp_matched <- WFO.match(spec.data = tyler_prepared$clean_string,
                              WFO.data = wfo_backbone,
                              Fuzzy = 0.15,
@@ -122,16 +128,16 @@ tyler_sp_matched <- WFO.match(spec.data = tyler_prepared$clean_string,
 
 
 
-# create accepted name column according to latest taxonomical nomenclature
+# finalise accepted name column according to latest taxonomical nomenclature
 tyler_sp_clean <- tyler_sp_matched |>
-  # First, store the original string clearly
+  # make copy of the original species string
   rename(clean_string = spec.name.ORIG) |>
   group_by(clean_string) |>
   summarise(
-    # 1) Flag multiple scientificName suggestions
+    # 1. Flag multiple scientificName suggestions
     flag_multiple_suggestions = n_distinct(scientificName) > 1,
     
-    # 2) Candidate accepted_name from Old.name when possible
+    # 2. Candidate accepted_name from Old.name when possible
     accepted_name = case_when(
       any(New.accepted == TRUE & Old.name != "") ~ 
         # take one Old.name where New.accepted == TRUE and Old.name non-empty
@@ -141,7 +147,7 @@ tyler_sp_clean <- tyler_sp_matched |>
         scientificName[1]
     ),
     
-    # 3) Where did accepted_name come from?
+    # 3. Where did accepted_name come from?
     accepted_from = case_when(
       any(New.accepted == TRUE & Old.name != "") ~ "Old.name",
       TRUE ~ "scientificName"
@@ -151,32 +157,45 @@ tyler_sp_clean <- tyler_sp_matched |>
 
 
 # check the species that change name where many options were available
-tyler_sp_clean |> filter(clean_string != accepted_name) |> view()
-tyler_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name) |> view()
+tyler_sp_clean |> filter(clean_string != accepted_name) #|> view()
+tyler_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name) #|> view()
+
 
 
 # correct incorrect corrections. haha
-#tyler_sp_clean <- tyler_sp_clean |> 
-#  mutate(flag_species_revert = case_when(
-#    flag_multiple_suggestions == TRUE & clean_string != accepted_name ~ paste("reverted to #original from", accepted_name),
-#    TRUE ~ ""
-#  ),
-#  accepted_name = case_when(
-#    flag_multiple_suggestions == TRUE & clean_string != accepted_name ~ clean_string,
-#    TRUE ~ accepted_name
-#  ))
+tyler_sp_clean <- tyler_sp_clean |> 
+  mutate(
+  flag_species_revert =
+    case_when(
+      accepted_name == "Rosa vinodora" ~ "reverted",
+      accepted_name == "Salix mollissima" ~ "reverted",
+      accepted_name == "Rosa canina subsp. glauca" ~ "edited",
+      clean_string == "Iris germanica" ~ "edited",
+      TRUE ~ ""
+      
+    ),
+  accepted_name = case_when(
+    accepted_name == "Rosa vinodora" ~ clean_string,
+    accepted_name == "Salix mollissima" ~ clean_string,
+    clean_string == "Iris germanica" ~ clean_string,
+    TRUE ~ accepted_name
+  ))
 
+# check name changes
+tyler_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name) #|> view()
+
+
+### figure out Hieracium issue.
 
 
 # bind new species names onto indicator dataset
-ind_tyler <- ind_tyler |> 
-  left_join(tyler_sp_matched_for_join, by = "clean_string") |> 
+tyler_species_clean <- left_join(tyler_prepared, tyler_sp_clean, by = "clean_string") |> 
+  full_join(ind_tyler, by = join_by(spec.full == scientific_name)) |> 
   # filter out sect. species and subspecies
   #filter(!grepl("subsp.", scientific_name_original)) |> 
   distinct()
 
-
-ind_tyler |> filter(is.na(accepted_name))
+tyler_species_clean |> filter(is.na(accepted_name))
 
 
 ind_tyler |> 
@@ -550,6 +569,53 @@ head(GRUK.species.ind)
 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+
+
+# ASO dataset
+
+
+# GBIF query
+aso_ds <- dataset_search(query = "ASO", type = "OCCURRENCE")
+
+aso_ds$data |>
+  select(title, key, publishingOrganizationTitle) |>
+  head()
+
+aso_key <-   # <- put ASO key here
+
+# Request GBIF download
+download_request <- occ_download(
+  pred("datasetKey", aso_key)
+)
+
+# 4. Wait until it succeeds (re-run as needed)
+download_status <- occ_download_meta(download_request)
+print(download_status$status)
+
+# 5. Get and import the download
+aso_file <- occ_download_get(download_request, overwrite = TRUE)
+aso_occ <- occ_download_import(aso_file)
+
+# 6. Save locally
+write.csv(aso_occ, "ASO_GBIF_occurrences.csv", row.names = FALSE)
+saveRDS(aso_occ, "ASO_GBIF_occurrences.rds")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+
 
 ### double check the Coa and Aosa species in the ANO fuzzy matching
 
