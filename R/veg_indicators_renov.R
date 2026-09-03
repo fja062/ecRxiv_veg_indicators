@@ -966,35 +966,35 @@ summary(ASO_all)
 
 
 # load in ano data
-ano_sp <- st_read("P:/41201785_okologisk_tilstand_2022_2023/data/ANO/naturovervaking_eksport.gdb",
+ano_species <- st_read("P:/41201785_okologisk_tilstand_2022_2023/data/ANO/naturovervaking_eksport.gdb",
                   layer="ANO_Art", quiet = T)
 ano_geo <- st_read("P:/41201785_okologisk_tilstand_2022_2023/data/ANO/naturovervaking_eksport.gdb",
                    layer="ANO_SurveyPoint", quiet = T)
 
 # extract species data
-ano_species <- ano_sp |> 
-  tibble() |> 
-  mutate(scientific_name = str_replace_all(art_navn, "_", " ")) |> 
-#  separate_wider_delim(scientific_name_original, delim = " ", names = c("genus", "species", "subspecies"), too_few = #"align_start", cols_remove = FALSE) |> 
-#  mutate(scientific_name_for_matching = if_else(
-#    # select subspecies
-#    !is.na(subspecies) & !grepl("agg.", scientific_name_original) & !grepl("sp.$", scientific_name_original), paste#(genus, species, "subsp.", subspecies), 
-#    # select aggregates 
-#    # CURRENTLY EXCLUDING AGGREGATE
-#    #if_else(!is.na(subspecies) & grepl("agg.", scientific_name_original), paste(genus, species, subspecies),
-#            # and species identified to species level
-#            paste(genus, species)#)
-#  ),
-#  scientific_name_for_matching = if_else(grepl("^sp.$", species), paste0(genus), scientific_name_for_matching)) |> 
-#  # capitalise first letter of genus
-#  mutate(scientific_name_for_matching = str_to_sentence(scientific_name_for_matching))
-  mutate(scientific_name_original = scientific_name,
+ano_species <- ano_species |> 
+  mutate(scientific_name = str_replace_all(art_navn, "_", " "),
+         scientific_name_original = scientific_name,
          scientific_name = str_replace_all(scientific_name, "ssp.", "subsp."),         # correct subspecies labelling
          scientific_name = str_replace_all(scientific_name, "\u00EB", "e"),
          scientific_name = str_remove_all(scientific_name, "agg."),                    # remove aggregates
          scientific_name = str_replace_all(scientific_name, " x ", " \u00D7 ")) |>     # correct hybrids labelling
   filter(!is.na(scientific_name), !scientific_name == "") |> 
   tibble()
+
+mutate(
+  scientific_name = scientific_name  |> 
+    str_replace_all("_", " ")  |> 
+    str_to_sentence(),
+  
+  scientific_name_no_sub = if_else(
+    is.na(word(scientific_name, 2)),        # only one word (no species epithet)
+    word(scientific_name, 1),              # just genus
+    word(scientific_name, 1, 2)            # genus + species
+  ) %>%
+    str_replace_all("-", " ")  |> 
+    str_squish()
+)
 
 ano_prepared_wfo <- ano_species |> 
   distinct(scientific_name, scientific_name_original) |> 
@@ -1003,81 +1003,85 @@ ano_prepared_wfo <- ano_species |>
 # prepare dataset for WFO matching
 ano_prepared_wfo <- WFO.prepare(ano_prepared_wfo$scientific_name)
 
+# recode species names for WFO matching
 ano_prepared_wfo <- ano_prepared_wfo |> 
-  mutate(spec.name = str_replace(spec.name,"Agrostis hyemalis", "Agrostis scabra"),
-       spec.name = str_replace(spec.name,"Antennaria lapponica", "Antennaria alpina"),
-       spec.name = str_replace(spec.name,"Antennaria porsildii", "Antennaria alpina"),
-       spec.name = str_replace(spec.name,"Arctous alpinus", "Arctous alpina"),
-       spec.name = str_replace(spec.name,"Betula tortuosa", "Betula pubescens"),
-       spec.name = str_replace(spec.name,"Blysmopsis rufa", "Blysmus rufus"),
-       spec.name = str_replace(spec.name,"Cardamine nymanii", "Cardamine pratensis"),
-       spec.name = str_replace(spec.name,"Carex adelostoma", "Carex buxbaumii"),
-       spec.name = str_replace(spec.name,"Carex concolor", "Carex aquatilis"),
-       spec.name = str_replace(spec.name,"Carex leersii", "Carex echinata"),
-       spec.name = str_replace(spec.name,"Carex myosuroides", "Kobresia myosuroides"),
-       spec.name = str_replace(spec.name,"Carex paupercula", "Carex magellanica"),
-       spec.name = str_replace(spec.name,"Carex simpliciuscula", "Kobresia simpliciuscula"),
-       spec.name = str_replace(spec.name,"Carex viridula", "Carex flava"),
-       spec.name = str_replace(spec.name,"Chamaepericlymenum suecicum", "Cornus suecia"),
-       spec.name = str_replace(spec.name,"Cicerbita alpina", "Lactuca alpina"),
-       spec.name = str_replace(spec.name,"Cornus suecia", "Cornus suecica"),
-       spec.name = str_replace(spec.name,"Cotoneaster scandinavicus", "Cotoneaster integerrimus"),
-       spec.name = str_replace(spec.name,"Dactylorhiza viridis", "Coeloglossum viride"),
-       spec.name = str_replace(spec.name,"Diphasiastrum alpinum", "Lycopodium alpinum"),
-       spec.name = str_replace(spec.name,"Diphasiastrum complanatum", "Lycopodium complanatum"),
-       spec.name = str_replace(spec.name,"Dryopteris affinis", "Dryopteris filix-mas"),
-       spec.name = str_replace(spec.name,"Empetrum hermaphroditum", "Empetrum nigrum"),
-       spec.name = str_replace(spec.name,"Elymus alaskanus", "Elymus kronokensis"),
-       spec.name = str_replace(spec.name,"Festuca prolifera", "Festuca rubra"),
-       spec.name = str_replace(spec.name,"Galium album", "Galium mollugo"),
-       spec.name = str_replace(spec.name,"Galium elongatum", "Galium palustre"),
-       spec.name = str_replace(spec.name,"Helictotrichon pratense", "Avenula pratensis"),
-       spec.name = str_replace(spec.name,"Helictotrichon pubescens", "Avenula pubescens"),
-       spec.name = str_replace(spec.name,"Hieracium alpina", "Hieracium Alpina"),
-       spec.name = str_replace(spec.name,"Hieracium alpinum", "Hieracium Alpina"),
-       spec.name = str_replace(spec.name,"Hieracium hieracium", "Hieracium Hieracium"),
-       spec.name = str_replace(spec.name,"Hieracium hieracioides", "Hieracium umbellatum"),
-       spec.name = str_replace(spec.name,"Hieracium murorum", "Hieracium Vulgata"),
-       spec.name = str_replace(spec.name,"Hieracium oreadea", "Hieracium Oreadea"),
-       spec.name = str_replace(spec.name,"Hieracium prenanthoidea", "Hieracium Prenanthoidea"),
-       spec.name = str_replace(spec.name,"Hieracium vulgata", "Hieracium Vulgata"),
-       spec.name = str_replace(spec.name,"Hieracium pilosella", "Pilosella officinarum"),
-       spec.name = str_replace(spec.name,"Hieracium vulgatum", "Hieracium umbellatum"),
-       spec.name = str_replace(spec.name,"Hierochloã« alpina", "Hierochloë alpina"),
-       spec.name = str_replace(spec.name,"Hierochloã« hirta", "Hierochloë hirta"),
-       spec.name = str_replace(spec.name,"Hierochloã« odorata", "Hierochloë odorata"),
-       spec.name = str_replace(spec.name,"Huperzia appressa", "Huperzia selago"),
-       spec.name = str_replace(spec.name,"Huperzia arctica", "Huperzia selago"),
-       spec.name = str_replace(spec.name,"Hylotelephium maximum", "Sedum telephium"),
-       spec.name = str_replace(spec.name,"Listera cordata", "Neottia cordata"),
-       spec.name = str_replace(spec.name,"Leontodon autumnalis", "Scorzoneroides autumnalis"),
-       spec.name = str_replace(spec.name,"Loiseleuria procumbens", "Kalmia procumbens"),
-       spec.name = str_replace(spec.name,"Minuartia rubella", "Sabulina rubella"),
-       spec.name = str_replace(spec.name,"Minuartia stricta", "Sabulina stricta"),
-       spec.name = str_replace(spec.name,"Mycelis muralis", "Lactuca muralis"),
-       spec.name = str_replace(spec.name,"Omalotheca supina", "Gnaphalium supinum"),
-       spec.name = str_replace(spec.name,"Omalotheca norvegica", "Gnaphalium norvegicum"),
-       spec.name = str_replace(spec.name,"Omalotheca sylvatica", "Gnaphalium sylvaticum"),
-       spec.name = str_replace(spec.name,"Oreopteris limbosperma", "Thelypteris limbosperma"),
-       spec.name = str_replace(spec.name,"Oxycoccus microcarpus", "Vaccinium microcarpum"),
-       spec.name = str_replace(spec.name,"Oxycoccus palustris", "Vaccinium oxycoccos"),
-       spec.name = str_replace(spec.name,"Phalaris minor", "Phalaris arundinacea"),
-       spec.name = str_replace(spec.name,"Pinus unicinata", "Pinus mugo"),
-       spec.name = str_replace(spec.name,"Poa alpigena", "Poa pratensis"),
-       spec.name = str_replace(spec.name,"Poa angustifolia", "Poa pratensis"),
-       spec.name = str_replace(spec.name,"Poa ×jemtlandica", "Poa alpina"),
-       spec.name = str_replace(spec.name,"Potentilla anserina", "Argentina anserina"),
-       spec.name = str_replace(spec.name,"Potentilla arenosa", "Potentilla nivea"),
-       spec.name = str_replace(spec.name,"Pyrola grandiflora", "Pyrola rotundifolia"),
-       spec.name = str_replace(spec.name,"Rubus fruticosus", "Rubus plicatus"),
-       spec.name = str_replace(spec.name,"Rumex alpestris", "Rumex acetosa"),
-       spec.name = str_replace(spec.name,"Stellaria uliginosa", "Stellaria alsine"),
-       spec.name = str_replace(spec.name,"Syringa emodi", "Syringa vulgaris"),
-       spec.name = str_replace(spec.name,"Taraxacum crocea", "Taraxacum officinale"),
-       spec.name = str_replace(spec.name,"Taraxacum croceum", "Taraxacum officinale"),
-       spec.name = str_replace(spec.name,"Trientalis europaea", "Lysimachia europaea"),
-       spec.name = str_replace(spec.name,"Trifolium pallidum", "Trifolium pratense"),
-       spec.name = str_replace(spec.name,"Veratrum lobelianum", "Veratrum album")
+  mutate(spec.name = recode(
+    spec.name,
+    "Agrostis hyemalis"              = "Agrostis scabra",
+    "Antennaria lapponica"           = "Antennaria alpina",
+    "Antennaria porsildii"           = "Antennaria alpina",
+    "Arctous alpinus"                = "Arctous alpina",
+    "Betula tortuosa"                = "Betula pubescens",
+    "Blysmopsis rufa"                = "Blysmus rufus",
+    "Cardamine nymanii"              = "Cardamine pratensis",
+    "Carex adelostoma"               = "Carex buxbaumii",
+    "Carex concolor"                 = "Carex aquatilis",
+    "Carex leersii"                  = "Carex echinata",
+    "Carex myosuroides"              = "Kobresia myosuroides",
+    "Carex paupercula"               = "Carex magellanica",
+    "Carex simpliciuscula"           = "Kobresia simpliciuscula",
+    "Carex viridula"                 = "Carex flava",
+    "Chamaepericlymenum suecicum"    = "Cornus suecia",
+    "Cicerbita alpina"               = "Lactuca alpina",
+    "Cornus suecia"                  = "Cornus suecica",
+    "Cotoneaster scandinavicus"      = "Cotoneaster integerrimus",
+    "Dactylorhiza viridis"           = "Coeloglossum viride",
+    "Diphasiastrum alpinum"          = "Lycopodium alpinum",
+    "Diphasiastrum complanatum"      = "Lycopodium complanatum",
+    "Dryopteris affinis"             = "Dryopteris filix-mas",
+    "Empetrum hermaphroditum"        = "Empetrum nigrum",
+    "Elymus alaskanus"               = "Elymus kronokensis",
+    "Festuca prolifera"              = "Festuca rubra",
+    "Galium album"                   = "Galium mollugo",
+    "Galium elongatum"               = "Galium palustre",
+    "Helictotrichon pratense"        = "Avenula pratensis",
+    "Helictotrichon pubescens"       = "Avenula pubescens",
+    "Hieracium alpina"               = "Hieracium Alpina",
+    "Hieracium alpinum"              = "Hieracium Alpina",
+    "Hieracium hieracium"            = "Hieracium Hieracium",
+    "Hieracium hieracioides"         = "Hieracium umbellatum",
+    "Hieracium murorum"              = "Hieracium Vulgata",
+    "Hieracium oreadea"              = "Hieracium Oreadea",
+    "Hieracium prenanthoidea"        = "Hieracium Prenanthoidea",
+    "Hieracium vulgata"              = "Hieracium Vulgata",
+    "Hieracium pilosella"            = "Pilosella officinarum",
+    "Hieracium vulgatum"             = "Hieracium umbellatum",
+    "Hierochloã« alpina"             = "Hierochloë alpina",
+    "Hierochloã« hirta"              = "Hierochloë hirta",
+    "Hierochloã« odorata"            = "Hierochloë odorata",
+    "Huperzia appressa"              = "Huperzia selago",
+    "Huperzia arctica"               = "Huperzia selago",
+    "Hylotelephium maximum"          = "Sedum telephium",
+    "Listera cordata"                = "Neottia cordata",
+    "Leontodon autumnalis"           = "Scorzoneroides autumnalis",
+    "Loiseleuria procumbens"         = "Kalmia procumbens",
+    "Minuartia rubella"              = "Sabulina rubella",
+    "Minuartia stricta"              = "Sabulina stricta",
+    "Mycelis muralis"                = "Lactuca muralis",
+    "Omalotheca supina"              = "Gnaphalium supinum",
+    "Omalotheca norvegica"           = "Gnaphalium norvegicum",
+    "Omalotheca sylvatica"           = "Gnaphalium sylvaticum",
+    "Oreopteris limbosperma"         = "Thelypteris limbosperma",
+    "Oxycoccus microcarpus"          = "Vaccinium microcarpum",
+    "Oxycoccus palustris"            = "Vaccinium oxycoccos",
+    "Phalaris minor"                 = "Phalaris arundinacea",
+    "Pinus unicinata"                = "Pinus mugo",
+    "Poa alpigena"                   = "Poa pratensis",
+    "Poa angustifolia"               = "Poa pratensis",
+    "Poa ×jemtlandica"               = "Poa alpina",
+    "Potentilla anserina"            = "Argentina anserina",
+    "Potentilla arenosa"             = "Potentilla nivea",
+    "Pyrola grandiflora"             = "Pyrola rotundifolia",
+    "Rubus fruticosus"               = "Rubus plicatus",
+    "Rumex alpestris"               = "Rumex acetosa",
+    "Stellaria uliginosa"            = "Stellaria alsine",
+    "Syringa emodi"                  = "Syringa vulgaris",
+    "Taraxacum crocea"               = "Taraxacum officinale",
+    "Taraxacum croceum"              = "Taraxacum officinale",
+    "Trientalis europaea"           = "Lysimachia europaea",
+    "Trifolium pallidum"            = "Trifolium pratense",
+    "Veratrum lobelianum"           = "Veratrum album"
+  )
 )
 
 
