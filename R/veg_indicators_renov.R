@@ -686,11 +686,6 @@ summary(GRUK_all)
 #rm(GRUK.ruter)
 
 
-summary(GRUK_all)
-
-
-
-
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
@@ -940,46 +935,25 @@ unique(ASO_species_ind[is.na(ASO_species_ind$Moisture &
 
 
 
-# checking which species didn't find a match
-unique(ASO.sp.ind[is.na(ASO.sp.ind$Light & 
-                          is.na(ASO.sp.ind$Nitrogen)),'Species'])
-
-
-# fix species name issues
-
-
-## merge species data with indicators
-ASO.sp.ind <- merge(x=ASO.sp[,c("Species", "art_dekning", "ParentGlobalID")], 
-                    y= ind.dat[,c("species","Light","Moisture","Soil_reaction_pH","Nitrogen","Phosphorus","Grazing_mowing","Soil_disturbance")],
-                    by.x="Species", by.y="species", all.x=T)
-summary(ASO.sp.ind)
-# checking which species didn't find a match
-unique(ASO.sp.ind[is.na(ASO.sp.ind$Light & 
-                          is.na(ASO.sp.ind$Nitrogen)),'Species'])
-
-# the rest can be omitted
-
-
 ## adding information on ecosystem and condition variables to species data
-names(ASO.sp.ind)
-names(ASO.geo)
-ASO.sp.ind <- merge(x=ASO.sp.ind, 
-                    y=ASO.geo[,c("GlobalID","Omradenummer_flatenummer","Eng_ID","ASO_ID","NiN_grunntype")], 
-                    by.x="ParentGlobalID", by.y="GlobalID", all.x=T)
-# trimming away the points without information on NiN, species or cover
-ASO.sp.ind <- ASO.sp.ind[!is.na(ASO.sp.ind$NiN_grunntype),]
-ASO.sp.ind <- ASO.sp.ind[!is.na(ASO.sp.ind$Species),]
-ASO.sp.ind <- ASO.sp.ind[!is.na(ASO.sp.ind$art_dekning),]
-
-#rm(ASO.sp)
-#rm(ASO.geo)
-
-
-summary(ASO.sp.ind)
-head(ASO.sp.ind)
+ASO_all <- ASO_species_ind |> 
+  full_join(ASO_points |>  
+              select(global_id, omradenummer_flatenummer, eng_id, aso_id, nin_grunntype), 
+            by = join_by(ParentGlobalID == global_id))
 
 
 
+# fixing variable types
+ASO_all <- ASO_all |> 
+  mutate(across(
+    c(accepted_name, nin_grunntype, omradenummer_flatenummer, eng_id, aso_id),
+    as.factor
+  )) |> 
+  rename(species = accepted_name) |> 
+  # trimming away the points without information on NiN, species or cover  
+  filter(!is.na(species), !is.na(art_dekning), !is.na(nin_grunntype))
+
+summary(ASO_all)
 
 
 
