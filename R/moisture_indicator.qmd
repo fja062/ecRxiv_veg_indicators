@@ -1350,7 +1350,8 @@ NiN_sp <- NiN_sp |>
     names_to   = "nin_id",                                   # new column for former column names
     values_to  = "cover"                                     # new column for values
   ) |> 
-  filter(!species_group %in% c("a2m", "a2lb", "a2l"))                             # filter out moss species
+  filter(!species_group %in% c("a2m", "a2lb", "a2l")) |>     # filter out moss and lichen species 
+  filter(cover != 0)                                         # filter out 0 cover 
 
 
 
@@ -1407,7 +1408,7 @@ NiN_sp <- NiN_sp |>
 NiN_sp <- NiN_sp |> 
   mutate(species = recode(
     species,
-    "Aconitum lycoctonum"           = "Aconitum septentrionale",
+    "Aconitum lycoctonum"          = "Aconitum septentrionale",
     "Anagallis arvensis"           = "Lysimachia arvensis",
     "Anagallis minima"             = "Lysimachia minima",
     "Arctous alpinus"              = "Arctous alpina",
@@ -1503,9 +1504,15 @@ NiN_sp <- NiN_sp |>
     "Trifolium pallidum"          = "Trifolium pratense",
     "Vicia orobus"                = "Vicia cassubica"
   ),
-  species = str_replace(species, "Hierochlo.? hirta", "Hierochloë hirta")
+  species = str_replace(species, "Hierochlo.? hirta", "Hierochloë hirta"),
+  species = str_replace_all(species, "spp.", "sp.")
     # and similar for other bad names
+  ) |> 
+    group_by(species, species_group, nin_id, Nature_Type, Sub_Type, nin_code) |> 
+  summarise(cover = max(cover),           # summing cover of species which have ended up appearing several times per nature type
+    .groups = "drop"
   )
+
 
 nin_prepared_wfo <- NiN_sp |> 
   distinct(species)
@@ -1605,18 +1612,19 @@ nin_species_clean |> filter(is.na(accepted_name))
 
 # Merge with indicator values
 nin_sp_ind <- nin_species_clean |>
+  select(Nature_Type, Sub_Type, nin_id, nin_code, species = accepted_name, species_group, cover) |> 
   left_join(tyler_species_clean |> 
-              select(accepted_name, Moisture, Nitrogen),
-            by = join_by(accepted_name)) |> 
+              select(species = accepted_name, Moisture, Nitrogen),
+            by = join_by(species)) |> 
   tibble()
 
 
 # double check species matching
-nin_sp_ind |> filter(is.na(accepted_name))  
-nin_sp_ind |> filter(is.na(Moisture)) |>  distinct(accepted_name)  # some species to sort here.
+nin_sp_ind |> filter(is.na(species))  
+nin_sp_ind |> filter(is.na(Moisture)&is.na(Nitrogen)) |>  distinct(species)  # some species to sort here.
 
 
-coverscale <- tibble(
+coverscale <- data.frame(
   orig = 0:6,
   cov  = c(0, 1/32, 1/8, 3/8, 0.6, 4/5, 1)
 )
@@ -1624,17 +1632,39 @@ coverscale <- tibble(
 
 # prepare for bootstrapping
 
-abun_wide <- nin_sp_ind |> 
+abun_wide <- nin_sp_ind |>
+  filter(cover != 0) |> 
+  mutate(cover = coverscale$cov[match(cover, coverscale$orig)]) |> 
   select(
-    sp = accepted_name,
+    sp = species,
     nin_code,
-    cover  # already converted to 0–1
+    cover
   ) |> 
   pivot_wider(
     names_from  = nin_code,
     values_from = cover,
     values_fill = 0
   )
+
+# Create wide indicator matrix
+ind_wide <- nin_sp_ind  |> 
+  select(
+    sp = species,
+    Moisture
+    )  |> 
+  group_by(sp) |> 
+  summarise(
+    Moisture = first(Moisture),
+    .groups  = "drop"
+  )
+
+
+# Extract sp, abun, ind for indBoot.freq()
+sp    <- abun_wide$sp
+abun  <- abun_wide[, -1]  # drop 'sp' column; remaining columns are NiN types
+ind   <- ind_wide[, -1]   # drop 'sp'; remaining columns are indicators
+
+
 ```
 
 This leaves us with the monitoring data including plant indicators (ano_lowlands) and the reference data including plant indicators (nin_sp_ind):
@@ -1742,18 +1772,18 @@ indBoot.freq <- function(sp, abun, ind, iter, obl, rat = 2/3,var.abun = F) {
 Running the bootstraps:
 ```{r boot2, eval = F}
 
-lowland_ref_cov <- indBoot_freq(
-  df_long    = nin_sp_ind,
-  indicators = "Moisture",
-  iter       = 1000,
-  obl        = 0.8,
-  rat        = 1/2,
-  var.abun   = TRUE
+lowland_ref_cov <- indBoot.freq(
+  sp      = sp,
+  abun    = abun,
+  ind     = ind,
+  iter    = 1000,
+  obl     = 0.8,
+  rat     = 1/2,
+  var.abun = FALSE
 )
 
 
-#forest.ref.cov <- indBoot.freq(sp=NiN.forest.cov[,1],abun=NiN.forest.cov[,2:27],ind=NiN.forest.cov[,28:29],
-                               iter=1000,obl=0.8,rat=1/2,var.abun=T)
+#forest.ref.cov <- indBoot.freq(sp=NiN.forest.cov[,1],abun=NiN.forest.cov[,2:27],ind=NiN.forest.cov[,28:29], iter=1000,obl=0.8,rat=1/2,var.abun=T)
 
 # fixing NaNs
 for (i in 1:length(lowland_ref_cov) ) {
