@@ -1373,13 +1373,13 @@ NiN_sp <- NiN_sp |>
       "CH07" ~ "T34-C4a",
       "CH08" ~ "T34-C4b",
       "CH09" ~ "T34-C4c",
-      "CH10" ~ "T34-C4d",
-      "CH11" ~ "T34-C5a",
+      #"CH10" ~ "T34-C4d",
+      #"CH11" ~ "T34-C5a",
       "CH12" ~ "T34-C5b",
-      "CH13" ~ "T34-C5c",
-      "CH14" ~ "T34-C6a",
+      #"CH13" ~ "T34-C5c",
+      #"CH14" ~ "T34-C6a",
       "CH15" ~ "T34-C6b",
-      "CH16" ~ "T34-C6c",
+      #"CH16" ~ "T34-C6c",
       "SN08" ~ "T32-C1C2",
       "SN09" ~ "T32-C3C4",
       "SN10" ~ "T32-C5C20a",
@@ -1800,11 +1800,11 @@ for (i in 1:length(lowland_ref_cov) ) {
 
 ```{r, include = F}
 # Data from cache
-forest.ref.cov<-readRDS(paste0(here::here(), "/data/cache/forest.ref.cov.RDS"))
+lowland_ref_cov <- readRDS(paste0(here::here(), "/data/cache/lowland_ref_cov.RDS"))
 ```
 
 ```{r}
-head(forest.ref.cov[[1]]) |>
+head(lowland_ref_cov[[1]]) |>
   kable("html", caption = "Table showing the first 6 rows of the bootstrapped data set.") |> kable_styling("striped") |> scroll_box(width = "100%")
 ```
 
@@ -1828,12 +1828,13 @@ lowland_ref_cov[[1]][0,]
 
 # NiN-types where each type is represented by one species list (including when one species list represents two NiN-types), i.e. excluding types with a- and b-suffix
 names(lowland_ref_cov[["Moisture"]])
-x <- c(1:17,22:26)
 
-# checking the actual NiN-types in the forest lists
-forest.NiNtypes <- colnames(lowland_ref_cov[["Moisture"]])
-forest.NiNtypes[-x] <- substr(forest.NiNtypes[-x], 1, nchar(forest.NiNtypes[-x])-1)
-forest.NiNtypes
+nin_doubles <- colnames(lowland_ref_cov[["Moisture"]]) |> str_subset("[abcd]$")
+
+# remove a-b-c-d subtypes
+colnames(lowland_ref_cov[["Moisture"]]) <- colnames(lowland_ref_cov[["Moisture"]]) |> 
+  str_remove("[abcd]$")
+
 
 # 2 indicator-value indicators: Moisture, "Moisture"
 indEll.n=2
@@ -1844,6 +1845,85 @@ tab <- matrix(ncol=3*indEll.n, nrow=24 ) # 24 basic ecosystem types
 # coercing the values into the table
 
 myQuantiles <- c(0.025, 0.5, 0.975)
+
+# 1) Moisture bootstrap matrix
+moist_mat  <- lowland_ref_cov[["Moisture"]]
+all_names  <- colnames(moist_mat)
+
+# 2) Strip a/b/c/d suffixes from column names to get base NiN IDs
+base_names <- all_names %>%
+  str_remove("[abcd]$")
+
+# 3) Map: each column index -> base NiN ID
+nin_map <- tibble(
+  col_index = seq_along(all_names),
+  col_name  = all_names,
+  base_nin  = base_names
+)
+
+# 4) Count how many columns per base NiN
+nin_counts <- nin_map %>%
+  count(base_nin, name = "n_cols")
+
+# Singles: NiN types represented by exactly one column
+nin_single <- nin_counts %>%
+  filter(n_cols == 1) %>%
+  pull(base_nin)
+
+# Multis: NiN types represented by multiple columns
+nin_multi <- nin_counts %>%
+  filter(n_cols > 1) %>%
+  pull(base_nin)
+
+# 5) Quantiles for single NiN types (one column each)
+tab_single <- map_dfr(nin_single, function(base_id) {
+  # find the column index that has this base NiN
+  idx <- nin_map %>%
+    filter(base_nin == base_id) %>%
+    pull(col_index)
+  
+  vals <- as.matrix(moist_mat[, idx])
+  q    <- quantile(vals, probs = myQuantiles, na.rm = TRUE)
+  
+  tibble(
+    NiN              = base_id,
+    Moisture_025     = q[1],
+    Moisture_50      = q[2],
+    Moisture_975     = q[3],
+    Moisture_025_dup = q[1],
+    Moisture_50_dup  = q[2],
+    Moisture_975_dup = q[3]
+  )
+})
+
+# 6) Quantiles for multi NiN types (several columns per type)
+tab_multi <- map_dfr(nin_multi, function(base_id) {
+  # find all columns whose stripped base_nin equals this base_id
+  idx <- nin_map %>%
+    filter(base_nin == base_id) %>%
+    pull(col_index)
+  
+  vals <- as.matrix(moist_mat[, idx])
+  q    <- quantile(vals, probs = myQuantiles, na.rm = TRUE)
+  
+  tibble(
+    NiN              = base_id,
+    Moisture_025     = q[1],
+    Moisture_50      = q[2],
+    Moisture_975     = q[3],
+    Moisture_025_dup = q[1],
+    Moisture_50_dup  = q[2],
+    Moisture_975_dup = q[3]
+  )
+})
+
+# 7) Combine singles and multis into final table
+tab <- bind_rows(tab_single, tab_multi)
+
+tab
+
+nin_cols    <- names(lowland_ref_cov[["Moisture"]]) |> 
+  str_subset("^(T|V)[0-9]")
 
 for (i in 1:length(x) ) {
   tab[i,1:3] <- quantile(as.matrix(lowland_ref_cov[["Moisture"]][,x[i]]),probs=myQuantiles,na.rm=T)
