@@ -128,15 +128,15 @@ ind_tyler <- ind_tyler |>
 
 ind_tyler <- ind_tyler |> 
   mutate(
-    scientific_name = recode(
-      scientific_name,
-      "Aconitum lycoctonum"   = "Aconitum septentrionale",
-      "Carex simpliciuscula"  = "Kobresia simpliciuscula",
-      "Carex myosuroides"     = "Kobresia myosuroides",
-      "Clinopodium acinos"    = "Acinos arvensis",
-      "Artemisia rupestris"   = "Artemisia norvegica",
-      "Cherleria biflora"     = "Minuartia biflora",
-      "Rosa vosagica"         = "Rosa vosagiaca"
+    scientific_name = case_when(
+      grepl("Aconitum lycoctonum", scientific_name) ~ "Aconitum septentrionale",
+      grepl("Carex simpliciuscula", scientific_name) ~ "Kobresia simpliciuscula",
+      grepl("Carex myosuroides", scientific_name) ~ "Kobresia myosuroides",
+      grepl("Clinopodium acinos", scientific_name) ~ "Acinos arvensis",
+      grepl("Artemisia rupestris", scientific_name) ~ "Artemisia norvegica",
+      grepl("Cherleria biflora", scientific_name) ~ "Minuartia biflora",
+      grepl("Rosa vosagica", scientific_name) ~ "Rosa vosagiaca",
+      TRUE ~ scientific_name
     )
   )
 
@@ -272,7 +272,7 @@ tyler_sp_clean <- tyler_sp_matched |>
 
 
 # check the species that change name where many options were available
-tyler_sp_clean |> filter(clean_string_no_sub != accepted_name) |> view()
+tyler_sp_clean |> filter(clean_string_no_sub != accepted_name) #|> view()
 tyler_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string_no_sub != accepted_name) #|> view()
 
 
@@ -313,7 +313,7 @@ tyler_species_clean <- tyler_species_clean |>
   ))
 
 # check name changes
-tyler_species_clean |> filter(clean_string_no_sub != accepted_name) |> view()
+tyler_species_clean |> filter(clean_string_no_sub != accepted_name) #|> view()
 
 
 tyler_species_clean |> filter(is.na(accepted_name))
@@ -337,9 +337,9 @@ GRUK_polygoner <- read_excel("P:/41201785_okologisk_tilstand_2022_2023/data/GRUK
 
 ## 2.1.1 GRUK species data handling
 GRUK_species <- GRUK_species |> 
-  rename(norsk_navn = `Norsk navn`,
-         scientific_name = `Latinsk navn`,
-         art_dekning = `Dekning %`)
+  janitor::clean_names() |> 
+  rename(scientific_name = latinsk_navn,
+         art_dekning = dekning_percent)
 
 
 # fix species names
@@ -543,8 +543,11 @@ GRUK_ruter <- GRUK_ruter |>
     UTM33_N_ne = utm33_n_ne,
     UTM33_E_sw = utm33_e_sw,
     UTM33_N_sw = utm33_n_sw,
-    areal_m2
-  )
+    areal_m2,
+    registeringsdato
+  ) |> 
+  mutate(year = year(registeringsdato)) |> 
+  select(-registeringsdato)
 
 
 # make coordinates numeric
@@ -586,15 +589,21 @@ GRUK_sirkler <- GRUK_sirkler |>
     dekning_busker_busksjikt = dekning_percent_av_busker_i_busksjikt,
     dekning_tresjikt = dekning_percent_av_tresjikt,
     dekning_problemarter = dekning_percent_av_problemarter,
-    total_dekning_fremmede_arter = total_dekning_percent_av_fremmede_arter
-  )
+    total_dekning_fremmede_arter = total_dekning_percent_av_fremmede_arter,
+    registeringsdato
+  ) |> 
+  mutate(year = year(registeringsdato)) |> 
+  select(-registeringsdato)
 
 
 GRUK_variables <- GRUK_ruter |> 
-  left_join(GRUK_sirkler, by = "global_id")
+  full_join(GRUK_sirkler, by = c("global_id", "year")) |>           # join plots with circles
+  filter(!is.na(UTM33_N))                                           # filter away plots with no coordinates
 
 summary(GRUK_variables)
 
+
+#remove 
 ## merge information on condition and quality from GRUK.polygoner into GRUK.variables
 # transform GRUK.variables into spatial object
 GRUK_variables <- st_as_sf(GRUK_variables, coords = c("UTM33_E","UTM33_N"), remove = FALSE, crs = 25833)
@@ -640,8 +649,11 @@ tm_shape(GRUK_polygoner) +
 GRUK_variables <- st_drop_geometry(GRUK_variables)
 names(GRUK_variables)
 names(GRUK_polygoner)
+
+
 GRUK_variables <- GRUK_variables |> 
-  left_join(GRUK_polygoner, by = "polygon_id") # there are 94 rows only found in GRUK_polygoner
+  left_join(GRUK_polygoner, by = c("year", "polygon_id")) # there are 94 rows only found in GRUK_polygoner
+
 
 summary(GRUK_variables) 
 summary(as.factor(GRUK_variables$tilstand)) # no unexpected NA's
@@ -1180,17 +1192,12 @@ ano_geo <- ano_geo |>
     hovedoekosystem_rute = recode(
       hovedtype_rute,
       "T4"  = "Forest", "T30" = "Forest",
-      "T3"  = "Mountain", "T7"  = "Mountain", "T14" = "Mountain",
-      "T22" = "Mountain",
-      "V1"  = "Wetland", "V2"  = "Wetland", "V3"  = "Wetland",
-      "V4"  = "Wetland", "V5"  = "Wetland", "V6"  = "Wetland",
+      "T3"  = "Mountain", "T7"  = "Mountain", "T14" = "Mountain", "T22" = "Mountain",
+      "V1"  = "Wetland", "V2"  = "Wetland", "V3"  = "Wetland", "V4"  = "Wetland", "V5"  = "Wetland", "V6"  = "Wetland", 
       "V7"  = "Wetland", "V8"  = "Wetland",
-      "T31" = "Seminat", "T32" = "Seminat", "T33" = "Seminat",
-      "T34" = "Seminat", "V9"  = "Seminat", "V10" = "Seminat",
-      "T2"  = "Natopen", "T8"  = "Natopen", "T11" = "Natopen",
-      "T12" = "Natopen", "T13" = "Natopen", "T15" = "Natopen",
-      "T16" = "Natopen", "T18" = "Natopen", "T21" = "Natopen",
-      "T24" = "Natopen", "T29" = "Natopen"
+      "T31" = "Seminat", "T32" = "Seminat", "T33" = "Seminat", "T34" = "Seminat", "V9"  = "Seminat", "V10" = "Seminat",
+      "T2"  = "Natopen", "T8"  = "Natopen", "T11" = "Natopen", "T12" = "Natopen", "T13" = "Natopen", "T15" = "Natopen", 
+      "T16" = "Natopen", "T18" = "Natopen", "T21" = "Natopen", "T24" = "Natopen", "T29" = "Natopen"
     )
   )
 
@@ -1351,7 +1358,7 @@ NiN_env <- Eco_State$Concept_Data$Env$Env_Data
 NiN_sp <- NiN_sp |> 
   left_join(NiN_env, 
                     by = join_by(nin_id == ID)) |> 
-  filter(Nature_Type %in% c("Semi_Natural", "Coastal_Heath"))  # filter for the desired nature type
+  filter(Nature_Type %in% c("Semi_Natural ", "Coastal_Heath"))  # filter for the desired nature type
 
 
 NiN_sp <- NiN_sp |> 
@@ -1434,8 +1441,7 @@ NiN_sp <- NiN_sp |>
     "Poa angustifolia"             = "Poa pratensis",
     "Poa laxa"                     = "Poa flexuosa",
     "Poa _herjedalica"             = "Poa herjedalica",
-    "Poa _jemtlandica"             = "Poa jemtlandica",
-    "Poa jemtlandica"              = "Poa alpina",
+    "Poa _jemtlandica"             = "Poa alpina",
     "Poa lindebergii"              = "Poa arctica",
     "Potentilla anserina"          = "Argentina anserina",
     "Pyrola grandiflora"           = "Pyrola rotundifolia",
@@ -1562,88 +1568,35 @@ nin_sp_ind <- nin_species_clean |>
   tibble()
 
 
-### cleaned to here!!!
+# double check species matching
+nin_sp_ind |> filter(is.na(accepted_name))  
+nin_sp_ind |> filter(is.na(Moisture)) |>  distinct(accepted_name)  # some species to sort here.
 
-# 999 as NA
-NiN_sp_ind[NiN_sp_ind == 999] <- NA
-
-# species (in tree groups) without Moisture match
-unique(
-  NiN_sp_ind[
-    is.na(NiN_sp_ind$Moisture) &
-      NiN_sp_ind$spgr %in% list("a1a", "a1b", "a1c"),
-    "sp"
-  ]
-)
-
-
-
-# all the name fixes in one place
-
-NiN_sp <- NiN_sp |>
-  mutate(
-    sp = recode(sp, !!!name_map),
-    # keep species column in sync if you want the cleaned names there too:
-    species = word(sp, 1, 2)
-  )
-
-### 6. Merge cleaned species with indicators --------------------------
-
-NiN_sp_ind <- merge(NiN_sp, ind.dat, by.x = "sp", by.y = "species", all.x = TRUE)
-summary(NiN_sp_ind)
-
-NiN_sp_ind[NiN_sp_ind == 999] <- NA
-
-# check unmatched species for selected species groups
-unique(
-  NiN_sp_ind[
-    is.na(NiN_sp_ind$Moisture) &
-      NiN_sp_ind$spgr %in% list("a1a", "a1b", "a1c"),
-    "sp"
-  ]
-)
-# ok now
-
-### 7. Match to NiN ecosystem types (forest example) ------------------
-
-
-
-
-  
-
-
-# Rename forest-type columns explicitly
-colnames(NiN.forest)[2:27] <- c(
-  "T4-C1",  "T4-C5",  "T4-C9",  "T4-C13",
-  "T4-C2",  "T4-C6",  "T4-C10", "T4-C14",
-  "T4-C3",  "T4-C7",  "T4-C11", "T4-C15",
-  "T4-C4",  "T4-C8",  "T4-C12", "T4-C16",
-  "T4-C17", "T4-C18a","T4-C19a","T4-C18b",
-  "T4-C19b","T4-C20",
-  "T30-C1","T30-C2","T30-C3",
-  "T30-C4"
-)
-
-### 8. Translate abundance classes to %-cover -------------------------
 
 coverscale <- tibble(
   orig = 0:6,
   cov  = c(0, 1/32, 1/8, 3/8, 0.6, 4/5, 1)
 )
 
-NiN.forest.cov <- NiN.forest %>%
+
+### Translate abundance classes to %-cover
+nin_sp_ind <- nin_sp_ind |>
   mutate(
-    # convert abundance classes (0–6) in columns 2:27 to cover %
-    across(
-      2:27,
-      ~ coverscale$cov[match(.x, coverscale$orig)]
-    ),
-    # make species a factor
-    sp = as.factor(sp)
+    cover = case_match(
+      cover,           
+      0 ~ 0,
+      1 ~ 1/32,
+      2 ~ 1/8,
+      3 ~ 3/8,
+      4 ~ 0.6,
+      5 ~ 4/5,
+      6 ~ 1,
+      .default = NA_real_   
+    )
   )
 ```
 
-This leaves us with the monitoring data including plant indicators (ANO.sp.ind) and the reference data including plant indicators (NiN.forest.cov):
+This leaves us with the monitoring data including plant indicators (ano_lowlands) and the reference data including plant indicators (nin_sp_ind):
   
   <!-- Print head of data set with horizontal scrolling -->
   ```{r ano-sp-tab, echo=F}
@@ -1654,7 +1607,7 @@ head(ANO.sp.ind) |>
 
 ```{r wetland_mountain_forest_seminatural-ref-data-tab, echo=FALSE}
 head(NiN.forest.cov) |> 
-  kable("html", caption = "Reference data set for wetland, mountain, forest, and semi-natural ecosystems") |> 
+  kable("html", caption = "Reference data set for semi-natural ecosystems") |> 
   kable_styling("striped") |> scroll_box(width = "100%")
 ```
 
@@ -1674,7 +1627,157 @@ In order to get distributions of these metrics rather than one single value (for
 - in every bootstrap iteration the abundance of the sampled species can be randomly changed by a limited amount if wished by introducing a re-sampling of abundance values from adjacent abundance steps with a certain probability (var.abun)
 
 ```{r bootstrapping}
-indBoot.freq <- function(sp,abun,ind,iter,obl,rat=2/3,var.abun=F) {
+
+
+
+indBoot_freq <- function(df_long, indicators, iter, obl, rat = 2/3, var.abun = FALSE) {
+  # df_long   : tibble/data.frame with columns:
+  #   accepted_name : species
+  #   nin_id        : ecosystem / NiN type
+  #   cover         : abundance (cover proportion 0–1)
+  #   ...           : other columns, including indicators
+  # indicators: character vector of column names to use as indicators
+  # iter      : number of bootstrap iterations
+  # obl       : abundance threshold for "obligate" species (on cover)
+  # rat       : proportion of non-obligate species to sample
+  # var.abun  : whether to vary cover via coverscale (optional)
+  
+  df_long <- as_tibble(df_long)
+  
+  # basic checks for required columns
+  stopifnot(all(c("accepted_name", "nin_id", "cover") %in% colnames(df_long)))
+  stopifnot(all(indicators %in% colnames(df_long)))
+  
+  indicator_cols <- indicators
+  n_indicators   <- length(indicator_cols)
+  nin_ids        <- df_long$nin_id %>% unique() %>% sort()
+  
+  # optional abundance (cover) variation setup
+  if (var.abun) {
+    prob_list <- list(
+      c(0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0),
+      c(0.2, 0.3, 0.5, 0.0, 0.0, 0.0, 0.0),
+      c(0.0, 0.2, 0.3, 0.5, 0.0, 0.0, 0.0),
+      c(0.0, 0.0, 0.2, 0.3, 0.5, 0.0, 0.0),
+      c(0.0, 0.0, 0.0, 0.2, 0.3, 0.5, 0.0),
+      c(0.0, 0.0, 0.0, 0.0, 0.2, 0.3, 0.5)
+    )
+  }
+  
+  vary_cover <- function(cover_vec) {
+    dat_b <- tibble(cover = cover_vec)
+    for (m in seq_len(nrow(coverscale) - 1)) {
+      target_cov <- coverscale$cov[m + 1]
+      idx_class  <- dat_b$cover == target_cov
+      if (any(idx_class)) {
+        n_class <- sum(idx_class)
+        dat_b$cover[idx_class] <- sample(
+          c(0.01, coverscale$cov[2:7]),
+          size    = n_class,
+          replace = TRUE,
+          prob    = prob_list[[m]]
+        )
+      }
+    }
+    dat_b <- dat_b %>%
+      mutate(
+        cover = case_when(
+          !is.na(cover) & cover <= 0 ~ 0.01,
+          !is.na(cover) & cover >  1 ~ 1,
+          TRUE                       ~ cover
+        )
+      )
+    dat_b$cover
+  }
+  
+  boot_one_nin <- function(nin_df) {
+    # nin_df: rows for one NiN type, columns: accepted_name, nin_id, cover + indicators
+    
+    # only species present & with indicator values
+    nin_df <- nin_df %>%
+      filter(
+        cover > 0,
+        !if_any(all_of(indicator_cols), is.na)
+      )
+    
+    if (nrow(nin_df) == 0) {
+      return(
+        map(
+          seq_len(n_indicators),
+          ~ matrix(NA_real_, nrow = iter, ncol = 1) %>% as.data.frame()
+        )
+      )
+    }
+    
+    obligate_idx   <- nin_df$cover >= obl
+    non_obligate   <- nin_df$accepted_name[!obligate_idx]
+    n_obligate     <- sum(obligate_idx)
+    n_non_obligate <- length(non_obligate)
+    
+    n_sample <- round((nrow(nin_df) - n_obligate) * rat, 0)
+    
+    iter_results <- map(seq_len(iter), function(i) {
+      speciesSample <- if (n_sample > 0) {
+        sample(non_obligate, size = n_sample, replace = FALSE)
+      } else {
+        character(0)
+      }
+      
+      nin_b <- bind_rows(
+        nin_df %>% filter(obligate_idx),
+        nin_df %>% filter(accepted_name %in% speciesSample)
+      )
+      
+      if (var.abun) {
+        nin_b <- nin_b %>%
+          mutate(cover = vary_cover(cover))
+      }
+      
+      map(indicator_cols, function(ind_name) {
+        ind_col <- nin_b[[ind_name]]
+        valid   <- !is.na(nin_b$cover) & !is.na(ind_col)
+        
+        if (nrow(nin_b) > 2 && any(valid)) {
+          num <- sum(nin_b$cover[valid] * ind_col[valid], na.rm = TRUE)
+          den <- sum(nin_b$cover[valid], na.rm = TRUE)
+          if (den > 0) num / den else NA_real_
+        } else {
+          NA_real_
+        }
+      })
+    })
+    
+    per_indicator <- map(seq_len(n_indicators), function(k) {
+      vals <- map_dbl(iter_results, ~ .x[[k]])
+      matrix(vals, nrow = iter, ncol = 1) %>% as.data.frame()
+    })
+    
+    per_indicator
+  }
+  
+  # Group by NiN ID and run bootstrap for each NiN type
+  nin_results <- df_long %>%
+    group_by(nin_id) %>%
+    group_map(~ boot_one_nin(.x))
+  
+  indicator_results <- map(seq_len(n_indicators), function(k) {
+    per_nin <- map(nin_results, ~ .x[[k]])
+    df <- per_nin %>%
+      bind_cols()
+    colnames(df) <- nin_ids
+    df
+  })
+  
+  names(indicator_results) <- indicator_cols
+  
+  indicator_results
+}
+
+
+
+
+
+indBoot.freq <- function(sp, abun, ind, iter, obl, rat = 2/3,var.abun = F) {
   
   ind.b <- matrix(nrow=iter,ncol=length(colnames(abun)))
   colnames(ind.b) <- colnames(abun)
@@ -1746,15 +1849,26 @@ indBoot.freq <- function(sp,abun,ind,iter,obl,rat=2/3,var.abun=F) {
 
 Running the bootstraps:
   ```{r boot2, eval = F}
-forest.ref.cov <- indBoot.freq(sp=NiN.forest.cov[,1],abun=NiN.forest.cov[,2:27],ind=NiN.forest.cov[,28:29],
+
+lowland_ref_cov <- indBoot_freq(
+  df_long    = nin_sp_ind,
+  indicators = "Moisture",
+  iter       = 1000,
+  obl        = 0.8,
+  rat        = 1/2,
+  var.abun   = TRUE
+)
+
+
+#forest.ref.cov <- indBoot.freq(sp=NiN.forest.cov[,1],abun=NiN.forest.cov[,2:27],ind=NiN.forest.cov[,28:29],
                                iter=1000,obl=0.8,rat=1/2,var.abun=T)
 
 # fixing NaNs
-for (i in 1:length(forest.ref.cov) ) {
-  for (j in 1:ncol(forest.ref.cov[[i]]) ) {
-    v <- forest.ref.cov[[i]][,j]
+for (i in 1:length(lowland_ref_cov) ) {
+  for (j in 1:ncol(lowland_ref_cov[[i]]) ) {
+    v <- lowland_ref_cov[[i]][,j]
     v[is.nan(v)] <- NA
-    forest.ref.cov[[i]][,j] <- v
+    lowland_ref_cov[[i]][,j] <- v
   }
 }
 
@@ -1787,15 +1901,15 @@ Next, we need to derive scaling values from these bootstrap-lists (the columns) 
 # every NiN-type is represented by one 'generalisert artsliste'
 # some NiN-types are represented by two such species lists
 # in some cases two NiN-types are represented by the same species list
-#head(forest.ref.cov[[1]])
-forest.ref.cov[[1]][0,]
+#head(lowland_ref_cov[[1]])
+lowland_ref_cov[[1]][0,]
 
 # NiN-types where each type is represented by one species list (including when one species list represents two NiN-types), i.e. excluding types with a- and b-suffix
-names(forest.ref.cov[["Moisture"]])
+names(lowland_ref_cov[["Moisture"]])
 x <- c(1:17,22:26)
 
 # checking the actual NiN-types in the forest lists
-forest.NiNtypes <- colnames(forest.ref.cov[["Moisture"]])
+forest.NiNtypes <- colnames(lowland_ref_cov[["Moisture"]])
 forest.NiNtypes[-x] <- substr(forest.NiNtypes[-x], 1, nchar(forest.NiNtypes[-x])-1)
 forest.NiNtypes
 
@@ -1810,13 +1924,13 @@ tab <- matrix(ncol=3*indEll.n, nrow=24 ) # 24 basic ecosystem types
 myQuantiles <- c(0.025, 0.5, 0.975)
 
 for (i in 1:length(x) ) {
-  tab[i,1:3] <- quantile(as.matrix(forest.ref.cov[["Moisture"]][,x[i]]),probs=myQuantiles,na.rm=T)
-  tab[i,4:6] <- quantile(as.matrix(forest.ref.cov[["Moisture"]][,x[i]]),probs=myQuantiles,na.rm=T)
+  tab[i,1:3] <- quantile(as.matrix(lowland_ref_cov[["Moisture"]][,x[i]]),probs=myQuantiles,na.rm=T)
+  tab[i,4:6] <- quantile(as.matrix(lowland_ref_cov[["Moisture"]][,x[i]]),probs=myQuantiles,na.rm=T)
 }
 
 tab <- as.data.frame(tab)
 tab$NiN <- NA
-tab$NiN[1:length(x)] <- names(forest.ref.cov[[1]])[x]
+tab$NiN[1:length(x)] <- names(lowland_ref_cov[[1]])[x]
 tab
 
 
