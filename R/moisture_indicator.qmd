@@ -135,14 +135,35 @@ Caching is also activated (from the top YAML), meaning that rendering to html wi
 - Merging indicator data with monitoring data and indicator data with reference data
 (not shown here, but documented in the code)
 
-```{r dataHandling, warning=F} 
+
+```{r spatial data, warnings = FALSE}
+## Read Norway / regions, join to open lowlands points
+
+nor <- st_read("P:/41201785_okologisk_tilstand_2022_2023/gjengroing/R_project/DATA/outlineOfNorway_EPSG25833.shp", quiet = TRUE) |>
+  st_as_sf() |>
+  st_transform(crs = st_crs(ano_geo))  # originally ano_lowlands
+
+reg <- st_read("P:/41201785_okologisk_tilstand_2022_2023/gjengroing/R_project/DATA/regions.shp", quiet = TRUE) |>
+  st_as_sf() |>
+  st_transform(crs = st_crs(ano_geo))
+
+# update region names
+reg$region <- c(
+  "Northern_Norway",
+  "Central_Norway",
+  "Eastern_Norway",
+  "Western_Norway",
+  "Southern_Norway"
+)
+
+regnor <- st_intersection(reg, nor)
+```
+
+```{r dataHandling_Tyler, warning=F} 
 #, message=F, results='hide'
 
-#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### ####
-# STEP ONE: clean indicator species
+# 2.0 Plant indicator data
 
-
-#### Plant indicator data
 ind_tyler <- ind_tyler |>
   rename(scientific_name = Scientific_name) |> 
   mutate(scientific_name_original = scientific_name,
@@ -302,6 +323,7 @@ tyler_species_clean <- tyler_species_clean |>
       
     ),
   accepted_name = case_when(
+    accepted_name = "Clinopodium acinos" ~ "Acinos arvensis",
     accepted_name == "Rosa vinodora" ~ "Rosa inodora",
     clean_string == "Heracleum 'kungsholm'" ~ clean_string,
     #accepted_name == "Salix mollissima" ~ clean_string,
@@ -314,7 +336,7 @@ tyler_species_clean <- tyler_species_clean |>
   ))
 
 # check name changes
-tyler_species_clean |> filter(clean_string != accepted_name) |> view()
+tyler_species_clean |> filter(clean_string != accepted_name)
 
 
 tyler_species_clean |> filter(is.na(accepted_name))
@@ -326,17 +348,17 @@ tyler_indicators <- tyler_species_clean |>
   filter(!is.na(Moisture))
 
 # remove unused dataframes
-rm(ind_tyler, tyler_prepared, tyler_prepared_wfo, tyler_sp_clean, tyler_sp_matched, tyler_species_clean)
+#rm(ind_tyler, tyler_prepared, tyler_prepared_wfo, tyler_sp_clean, tyler_sp_matched, tyler_species_clean)
 
 
 # cache the indicator data here
+#saveRDS(tyler_indicators, paste0(here::here(),"/data/cache/tyler_indicators.RDS"))
 
+```
 
+```{r dataHandling_GRUK, warning = FALSE}
 
-
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###
-
-###### STEP 2: clean GRUK data
+# 2.1 GRUK data
 
 ## 2.1.1 GRUK species data handling
 GRUK_species <- GRUK_species |> 
@@ -454,7 +476,7 @@ GRUK_sp_clean |> filter(clean_string != accepted_name)
 GRUK_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name)
 
 
-# correct incorrect corrections. haha
+# correct incorrect corrections
 GRUK_sp_clean <- GRUK_sp_clean |> 
   mutate(
     flag_species_revert =
@@ -562,8 +584,6 @@ GRUK_ruter <- GRUK_ruter |>
 
 
 ## 2.1.3 GRUK sirkler data handling
-
-
 ## merge information on mapping units and condition variables from GRUK.sirkler into GRUK.ruter
 names(GRUK_ruter)
 names(GRUK_sirkler)
@@ -682,11 +702,15 @@ summary(GRUK_all)
 
 #rm(GRUK_polygoner, GRUK_prepared, GRUK_prepared_wfo, GRUK_ruter, GRUK_sirkler, GRUK_sp_clean, GRUK_sp_matched, GRUK_species, GRUK_species_clean, GRUK_species_ind, GRUK_variables)
 
+#saveRDS(GRUK_all, paste0(here::here(),"/data/cache/GRUK_all.RDS"))
+#saveRDS(GRUK_species_ind, paste0(here::here(),"/data/cache/GRUK_species_ind.RDS"))
 
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
 
+```
+
+```{r dataHandling_ASO, warning = FALSE}
+# 2.2 ASO
 # 2.2.1 ASO points data
 
 ASO_points <- st_as_sf(x = ASO_points, 
@@ -751,6 +775,7 @@ ASO_species <- rename(ASO_species, art_dekning = Dekning)
 
 # fix species names
 ASO_species <- ASO_species |>
+  mutate(scientific_name_original = scientific_name) |> 
   separate(
     col  = Navn,
     into = c("norsk_navn", "scientific_name"),
@@ -763,7 +788,7 @@ ASO_species <- ASO_species |>
       str_replace_all("_", " ")  |> 
       str_to_sentence(),
     
-    scientific_name_no_sub = if_else(
+    scientific_name = if_else(
       is.na(word(scientific_name, 2)),        # only one word (no species epithet)
       word(scientific_name, 1),              # just genus
       word(scientific_name, 1, 2)            # genus + species
@@ -773,8 +798,8 @@ ASO_species <- ASO_species |>
   )
 
 ASO_species <- ASO_species  |>  
-  mutate(scientific_name_no_sub = recode(
-    scientific_name_no_sub,
+  mutate(scientific_name = recode(
+    scientific_name,
     "Cardamine dentata"           = "Cardamine pratensis",
     "Chamaepericlymenum suecicum" = "Cornus suecica",
     "Chamerion angustifolium"     = "Chamaenerion angustifolium",
@@ -799,10 +824,10 @@ ASO_species <- ASO_species  |>
 
 
 # filter out NAs for WFO cleaning
-ASO_species_prepared <- filter(ASO_species, !is.na(scientific_name_no_sub))
+ASO_species_prepared <- filter(ASO_species, !is.na(scientific_name))
 
 
-ASO_prepared_wfo <- WFO.prepare(ASO_species_prepared$scientific_name_no_sub)
+ASO_prepared_wfo <- WFO.prepare(ASO_species_prepared$scientific_name)
 
 ASO_prepared <- ASO_prepared_wfo |>
   mutate(
@@ -885,9 +910,9 @@ ASO_sp_clean <- ASO_sp_clean |>
 
 # bind new species names onto original dataset
 ASO_species_clean <- left_join(ASO_prepared, ASO_sp_clean, by = "clean_string") |> 
-  full_join(ASO_species, by = join_by(spec.full == scientific_name_no_sub)) |> 
+  full_join(ASO_species, by = join_by(spec.full == scientific_name)) |> 
   distinct() |> 
-  # add on Hieracium Vulgata group
+  # add on Hieracium group info lost in Norwegian name
   mutate(
     accepted_name = case_when(
       norsk_navn == "skogsvevegruppa" ~ paste("Hieracium", str_sub(karplantenavn, 19, 27))  |> str_squish(),
@@ -903,7 +928,6 @@ ASO_species_clean |>
   filter(is.na(accepted_name)) |> 
   tibble()
 
-# there are some norwegian names with no scientific name associated.
 
 
 # 2.2.3 merge with indicator data
@@ -942,12 +966,16 @@ ASO_all <- ASO_all |>
 
 summary(ASO_all)
 
- #rm(ASO_species, ASO_species_ind, ASO_prepared, ASO_sp_matched, ASO_points, ASO_sp_clean, ASO_species_clean, ASO_species_prepared, ASO_prepared_wfo)
+ #rm(ASO_species, ASO_prepared, ASO_sp_matched, ASO_points, ASO_sp_clean, ASO_species_clean, ASO_species_prepared, ASO_prepared_wfo)
+
+#saveRDS(ASO_all, paste0(here::here(),"/data/cache/ASO_all.RDS"))
+#saveRDS(ASO_species_ind, paste0(here::here(),"/data/cache/ASO_species_ind.RDS"))
 
 
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
 
+```
 
+```{r dataHandling_ANO, warning = FALSE}
 #### 2.3 ANO monitoring data
 
 # 2.3.1 extract species data
@@ -1079,8 +1107,6 @@ ano_sp_matched <- WFO.match(spec.data = ano_prepared$clean_string,
                               Fuzzy.one = FALSE)
 
 
-
-
 # finalise accepted name column according to latest taxonomical nomenclature
 ano_sp_clean <- ano_sp_matched |>
   # make copy of the original species string
@@ -1114,8 +1140,7 @@ ano_sp_clean |> filter(clean_string != accepted_name) #|> view()
 ano_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name) #|> view()
 
 
-
-# correct incorrect corrections. haha
+# correct incorrect corrections
 ano_sp_clean <- ano_sp_clean |> 
   mutate(
     flag_species_revert =
@@ -1143,7 +1168,6 @@ ano_species_clean <- left_join(ano_prepared, ano_sp_clean, by = "clean_string") 
   filter(!is.na(accepted_name))
 
 ano_species_clean |> filter(is.na(accepted_name))
-
 
 
 ## merge species data with indicators
@@ -1245,26 +1269,6 @@ ano_geo <- ano_geo |>
 ano_lowlands <- ano_geo# |>
   #filter(hovedoekosystem_rute %in% c("Natopen", "Seminat", "T45", "T41"))
 
-## 5. Read Norway / regions, join to open lowlands points
-
-nor <- st_read("P:/41201785_okologisk_tilstand_2022_2023/gjengroing/R_project/DATA/outlineOfNorway_EPSG25833.shp", quiet = TRUE) |>
-  st_as_sf() |>
-  st_transform(crs = st_crs(ano_lowlands))
-
-reg <- st_read("P:/41201785_okologisk_tilstand_2022_2023/gjengroing/R_project/DATA/regions.shp", quiet = TRUE) |>
-  st_as_sf() |>
-  st_transform(crs = st_crs(ano_lowlands))
-
-# update region names
-reg$region <- c(
-  "Northern_Norway",
-  "Central_Norway",
-  "Eastern_Norway",
-  "Western_Norway",
-  "Southern_Norway"
-)
-
-regnor <- st_intersection(reg, nor)
 
 ano_lowlands <- st_join(
   ano_lowlands,
@@ -1282,9 +1286,15 @@ ANO_species_ind <- ANO_species_ind |>
   filter(!is.na(hovedtype_rute))
 
 
-#### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### 
+#saveRDS(ano_lowlands, paste0(here::here(),"/data/cache/ano_lowlands.RDS"))
+#saveRDS(ANO_species_ind, paste0(here::here(),"/data/cache/ANO_species_ind.RDS"))
 
-#### 2.4 reference data - data handling
+
+```
+
+```{r dataHandling_NiN, warning = FALSE}
+
+# 2.4 reference data - data handling
 
 ### Inspect Eco_State structure 
 
@@ -1749,6 +1759,7 @@ indBoot.freq <- function(sp, abun, ind, iter, obl, rat = 2/3,var.abun = F) {
 Running the bootstraps:
 ```{r boot2, eval = F}
 
+
 lowland_ref_cov <- indBoot.freq(
   sp      = sp,
   abun    = abun,
@@ -1760,7 +1771,6 @@ lowland_ref_cov <- indBoot.freq(
 )
 
 
-#forest.ref.cov <- indBoot.freq(sp=NiN.forest.cov[,1],abun=NiN.forest.cov[,2:27],ind=NiN.forest.cov[,28:29], iter=1000,obl=0.8,rat=1/2,var.abun=T)
 
 # fixing NaNs
 for (i in 1:length(lowland_ref_cov) ) {
@@ -1771,7 +1781,8 @@ for (i in 1:length(lowland_ref_cov) ) {
   }
 }
 
-#saveRDS(forest.ref.cov, paste0(here::here(),"/data/cache/forest.ref.cov.RDS"))
+#saveRDS(lowland_ref_cov, paste0(here::here(),"/data/cache/lowland_ref_cov.RDS"))
+
 
 ```
 
@@ -1950,7 +1961,7 @@ For scaling ANO-data against the reference we use the normalisation function fro
 #| warning: false
 
 
-#### calculating scaled and non-truncated values for the indicators based on the dataset ####
+#### 1. calculating scaled and non-truncated values for the indicators based on the ANO dataset ####
 # drop geometry
 ano_lowlands <- ano_lowlands |>
   mutate(
@@ -2053,6 +2064,113 @@ ano_lowlands <- ano_lowlands |>
 
 # add geometry again
 ano_lowlands <- ano_lowlands |>
+  st_as_sf(coords = c("X", "Y"), crs = st_crs(ano_geo))
+
+
+
+#### 2. calculating scaled and non-truncated values for the indicators based on the ANO dataset ####
+# drop geometry
+gruk_lowlands <- GRUK_all |>
+  mutate(
+    X = st_coordinates(GRUK_all)[, 1],
+    Y = st_coordinates(GRUK_all)[, 2],
+    kartleggingsenhet_1m2 = word(kartleggingsenhet_1m2, 1, 1)
+  ) |>
+  st_drop_geometry() |> 
+  mutate(globalid_chr = as.character(globalid)) %>%
+  semi_join(
+    ANO_species_ind %>% mutate(parent_chr = as.character(parentglobalid)),
+    by = c("globalid_chr" = "parent_chr")
+  ) |> 
+  filter(hovedtype_rute %in% c("T32", "T34", "T45", "V10", "T41"))
+
+
+ref_grunn <- unique(sub("\\-.*", "", as.character(lowland_ref_cov_val$grunn)))
+
+for (i in seq_len(nrow(gruk_lowlands))) {
+    tryCatch({
+        
+        hoved_i  <- as.character(gruk_lowlands$hovedtype_rute[i])
+        global_i <- as.character(gruk_lowlands$globalid[i])
+        nin_i    <- as.character(gruk_lowlands[i, "kartleggingsenhet_1m2"])
+        
+        # 1) hovedtype must exist in ref
+        cond_hoved <- !is.na(hoved_i) && hoved_i %in% ref_grunn
+        if (!isTRUE(cond_hoved)) next
+        
+        # 2) species data
+        dat <- ANO_species_ind[
+            ANO_species_ind$parentglobalid == global_i,
+            c("art_dekning", "Moisture")
+        ]
+        if (nrow(dat) == 0) next
+        
+        gruk_lowlands[i, "richness"] <- nrow(dat)
+        dat <- dat[!is.na(dat$Moisture), ]
+        if (nrow(dat) == 0) next
+        
+        # 3) CWM Moisture
+        val <- sum(dat$art_dekning * dat$Moisture, na.rm = TRUE) /
+            sum(dat$art_dekning, na.rm = TRUE)
+        
+        ## Moisture1
+        idx1 <- lowland_ref_cov_val$Ind == "Moisture1" &
+            lowland_ref_cov_val$grunn == nin_i
+        idx1[is.na(idx1)] <- FALSE
+        
+        if (sum(idx1) == 1) {
+            ref1    <- as.numeric(lowland_ref_cov_val$Rv[idx1][[1]])
+            lim1    <- as.numeric(lowland_ref_cov_val$Gv[idx1][[1]])
+            maxmin1 <- as.numeric(lowland_ref_cov_val$maxmin[idx1][[1]])
+            
+            if (!any(is.na(c(ref1, lim1, maxmin1)))) {
+                gruk_lowlands[i, "Moisture1"] <- ec_normalise(
+                    variable = val,
+                    x0   = maxmin1,
+                    x60  = lim1,
+                    x100 = ref1,
+                    fun  = "linear"
+                )
+            }
+        }
+        
+        ## Moisture2
+        idx2 <- lowland_ref_cov_val$Ind == "Moisture2" &
+            lowland_ref_cov_val$grunn == nin_i
+        idx2[is.na(idx2)] <- FALSE
+        
+        if (sum(idx2) == 1) {
+            ref2    <- as.numeric(lowland_ref_cov_val$Rv[idx2][[1]])
+            lim2    <- as.numeric(lowland_ref_cov_val$Gv[idx2][[1]])
+            maxmin2 <- as.numeric(lowland_ref_cov_val$maxmin[idx2][[1]])
+            
+            if (!any(is.na(c(ref2, lim2, maxmin2)))) {
+                gruk_lowlands[i, "Moisture2"] <- ec_normalise(
+                    variable = val,
+                    x0   = maxmin2,
+                    x60  = lim2,
+                    x100 = ref2,
+                    fun  = "linear"
+                )
+            }
+        }
+        
+    }, error = function(e) {
+        cat("ERROR at row", i, ":", conditionMessage(e), "\n")
+    })
+}
+
+# overall indicator
+gruk_lowlands <- gruk_lowlands |>
+    dplyr::mutate(
+        moisture  = Moisture1 * Moisture2,
+        Moisture1 = if_else(Moisture1 == 1, NA_real_, Moisture1),
+        Moisture2 = if_else(Moisture2 == 1, NA_real_, Moisture2)
+    )
+
+
+# add geometry again
+gruk_lowlands <- gruk_lowlands |>
   st_as_sf(coords = c("X", "Y"), crs = st_crs(ano_geo))
 
 ```
