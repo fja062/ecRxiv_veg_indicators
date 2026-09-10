@@ -1,3 +1,14 @@
+
+
+## 7. Import and prepare datasets
+
+<!--# All the data import and preparation should be done in this chapter, before the analysis chapter. As a minimum, add code for importing data, and describe or show the data structure. You may also explain certain variables, what they represent, and their distributions -->
+
+  
+  ### 7.1 Dataset A
+  Import ANO testing data:
+  First, download from  Miljødirektoratet (downloaded spring 2026)...
+```{r, eval = F, echo = F}
 # load packages
 library(tidyverse)
 library(pwr)
@@ -12,22 +23,10 @@ library(zen4R)
 library(tidylog)
 library(rgbif)
 library(here)
+library(ecTools)
+library(glmmTMB)
 
 
-### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
-
-
-
-
-## 7. Import and prepare datasets
-
-<!--# All the data import and preparation should be done in this chapter, before the analysis chapter. As a minimum, add code for importing data, and describe or show the data structure. You may also explain certain variables, what they represent, and their distributions -->
-
-  
-  ### 7.1 Dataset A
-  Import ANO testing data:
-  First, download from  Miljødirektoratet (downloaded spring 2026)...
-```{r, eval = F, echo = F}
 # download 
 url <- "https://nedlasting.miljodirektoratet.no/naturovervaking/naturovervaking_eksport.gdb.zip"
 download(url, dest="P:/41201785_okologisk_tilstand_2022_2023/data/ANO/naturovervaking_eksport.gdb.zip", mode="wb") 
@@ -211,60 +210,33 @@ ind_tyler <- ind_tyler |>
 tyler_prepared_wfo <- WFO.prepare(ind_tyler$scientific_name)
 
 
-
-### WHAT TO DO WITH SUBSPECIES???
 # reconnect subspecies with corresponding species from authorship column
 tyler_prepared <- tyler_prepared_wfo |>
   tibble() |> 
   mutate(
     # first word of Authorship
-    first_author = if_else(!is.na(Authorship), word(Authorship, 1, 1), ""),
-    
-    # 1) If first_author looks like a missed subspecies epithet (lowercase),
-    #    AND the name is NOT a hybrid, append "subsp. <first_author>"
-    spec.name = if_else(
-      first_author != "" &
-        str_detect(first_author, "^[a-z]") &               # starts lowercase
-        !str_detect(spec.name, " x$") &                    # not ending with " x"
-        !str_detect(spec.name, "\u00D7$") &                # not ending with "×"
-        !str_detect(spec.name, "^\\s*[x\u00D7]\\b"),       # not starting with x/× hybrid marker
-      paste(spec.name, "subsp.", first_author),
-      spec.name
+    subspecies = if_else(!is.na(Authorship), word(Authorship, 1, 1), ""),
+    clean_string = word(spec.name, 1, 2),
+    clean_string = if_else(
+      str_detect(spec.name, " x$") |                                # ending with " x" OR
+      str_detect(spec.name, "\u00D7$") |                            # ending with "×" OR
+      str_detect(spec.name, "^\\s*[x\u00D7]\\b"),                   # starting with x/× hybrid marker
+      paste(spec.name, subspecies),
+      clean_string
     ),
-    
-    # 2) Hybrids: append first_author after trailing " x" or "×"
-    spec.name = if_else(
-      str_detect(spec.name, " x$"),
-      paste0(spec.name, " ", first_author),
-      spec.name
-    ),
-    spec.name = if_else(
-      str_detect(spec.name, "\u00D7$"),
-      paste0(spec.name, " ", first_author),
-      spec.name
-    ),
-    spec.name = if_else(
-      str_detect(Authorship, "^\u00D7"),
-      paste0(spec.name, Authorship),
-      spec.name
-    ),
-    
-    # 3) Clean "sect." and whitespace
-    spec.name = spec.name |>
-      str_replace_all("\\bsect\\b\\.?", " ") |>
-      str_squish() |> 
-      str_to_sentence()
-  ) |>
-  rename(clean_string = spec.name) |> 
+    clean_string = if_else(                                         # remove 'sect.'
+      str_detect(spec.name, "sect."),
+      paste(word(clean_string, 1, 1), word(spec.full, 3, 3)),
+      clean_string
+    )
+    ) |>
   # unique values in spec.full and clean_string only
-  distinct(spec.full, clean_string) |> 
-  # create species names without subspecies
-  mutate(clean_string_no_sub = str_remove(pattern = "subsp\\..*$", string = clean_string))
+  distinct(spec.full, clean_string)
 
 
 
 # standardise names to the WFO backbone (slow)
-tyler_sp_matched <- WFO.match(spec.data = tyler_prepared$clean_string_no_sub,
+tyler_sp_matched <- WFO.match(spec.data = tyler_prepared$clean_string,
                              WFO.data = wfo_backbone,
                              Fuzzy = 0.15,
                              Fuzzy.max = 50,
@@ -275,13 +247,13 @@ tyler_sp_matched <- WFO.match(spec.data = tyler_prepared$clean_string_no_sub,
 # finalise accepted name column according to latest taxonomical nomenclature
 tyler_sp_clean <- tyler_sp_matched |>
   # make copy of the original species string
-  rename(clean_string_no_sub = spec.name.ORIG) |>
-  group_by(clean_string_no_sub) |>
+  rename(clean_string = spec.name.ORIG) |>
+  group_by(clean_string) |>
   summarise(
-    # 1. Flag multiple scientificName suggestions
+    # Flag multiple scientificName suggestions
     flag_multiple_suggestions = n_distinct(scientificName) > 1,
     
-    # 2. Candidate accepted_name from Old.name when possible
+    # Candidate accepted_name from Old.name when possible
     accepted_name = case_when(
       any(New.accepted == TRUE & Old.name != "") ~ 
         # take one Old.name where New.accepted == TRUE and Old.name non-empty
@@ -291,7 +263,7 @@ tyler_sp_clean <- tyler_sp_matched |>
         scientificName[1]
     ),
     
-    # 3. Where did accepted_name come from?
+    # Where did accepted_name come from?
     accepted_from = case_when(
       any(New.accepted == TRUE & Old.name != "") ~ "Old.name",
       TRUE ~ "scientificName"
@@ -301,12 +273,12 @@ tyler_sp_clean <- tyler_sp_matched |>
 
 
 # check the species that change name where many options were available
-tyler_sp_clean |> filter(clean_string_no_sub != accepted_name) #|> view()
-tyler_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string_no_sub != accepted_name) #|> view()
+tyler_sp_clean |> filter(clean_string != accepted_name) #|> view()
+tyler_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name) #|> view()
 
 
 # bind new species names onto indicator dataset
-tyler_species_clean <- left_join(tyler_prepared, tyler_sp_clean, by = "clean_string_no_sub") |> 
+tyler_species_clean <- left_join(tyler_prepared, tyler_sp_clean, by = "clean_string") |> 
   full_join(ind_tyler, by = join_by(spec.full == scientific_name)) |> 
   # filter out sect. species and subspecies
   #filter(!grepl("subsp.", scientific_name_original)) |> 
@@ -320,36 +292,41 @@ tyler_species_clean <- tyler_species_clean |>
       accepted_name == "Rosa vinodora" ~ "reverted",
       #accepted_name == "Salix mollissima" ~ "reverted",
       accepted_name == "Rosa canina subsp. glauca" ~ "edited",
-      clean_string_no_sub == "Heracleum 'kungsholm'" ~ "reverted",
-      clean_string_no_sub == "Iris germanica" ~ "edited",
-      clean_string_no_sub == "Hedlundia atrata" ~ "reverted",
-      clean_string_no_sub == "Hedlundia faohraei" ~ "reverted",
-      grepl("Hieracium", clean_string_no_sub) & grepl("sect.", spec.full) ~ "edited",
-      is.na(accepted_name) ~ "added",                                                          # fill missing accepted_name with clean_string_no_sub
+      clean_string == "Heracleum 'kungsholm'" ~ "reverted",
+      clean_string == "Iris germanica" ~ "edited",
+      clean_string == "Hedlundia atrata" ~ "reverted",
+      clean_string == "Hedlundia faohraei" ~ "reverted",
+      grepl("Hieracium", clean_string) & grepl("sect.", spec.full) ~ "edited",
+      is.na(accepted_name) ~ "added",                                                          # fill missing accepted_name with clean_string
       TRUE ~ ""
       
     ),
   accepted_name = case_when(
     accepted_name == "Rosa vinodora" ~ "Rosa inodora",
-    clean_string_no_sub == "Heracleum 'kungsholm'" ~ clean_string_no_sub,
-    #accepted_name == "Salix mollissima" ~ clean_string_no_sub,
-    clean_string_no_sub == "Iris germanica" ~ clean_string_no_sub,
-    clean_string_no_sub == "Hedlundia atrata" ~ clean_string_no_sub,
-    clean_string_no_sub == "Hedlundia faohraei" ~ clean_string_no_sub,
-      grepl("Hieracium", clean_string_no_sub) & grepl("sect.", spec.full) ~ paste(word(spec.full, 1, 1), word(spec.full, 3, 3)),
-    is.na(accepted_name) ~ clean_string_no_sub,
+    clean_string == "Heracleum 'kungsholm'" ~ clean_string,
+    #accepted_name == "Salix mollissima" ~ clean_string,
+    clean_string == "Iris germanica" ~ clean_string,
+    clean_string == "Hedlundia atrata" ~ clean_string,
+    clean_string == "Hedlundia faohraei" ~ clean_string,
+    grepl("Hieracium", clean_string) & grepl("sect.", spec.full) ~ paste(word(spec.full, 1, 1), word(spec.full, 3, 3)),
+    is.na(accepted_name) ~ clean_string,
     TRUE ~ accepted_name
   ))
 
 # check name changes
-tyler_species_clean |> filter(clean_string_no_sub != accepted_name) #|> view()
+tyler_species_clean |> filter(clean_string != accepted_name) |> view()
 
 
 tyler_species_clean |> filter(is.na(accepted_name))
 
 
+tyler_indicators <- tyler_species_clean |> 
+  select(species = accepted_name,
+         Moisture) |> 
+  filter(!is.na(Moisture))
+
 # remove unused dataframes
-rm(ind_tyler, tyler_prepared, tyler_prepared_wfo, tyler_sp_clean, tyler_sp_matched)
+rm(ind_tyler, tyler_prepared, tyler_prepared_wfo, tyler_sp_clean, tyler_sp_matched, tyler_species_clean)
 
 
 # cache the indicator data here
@@ -370,87 +347,74 @@ GRUK_species <- GRUK_species |>
 
 # fix species names
 GRUK_species <- GRUK_species |>
-  mutate(
-    scientific_name_original = scientific_name,
-    scientific_name = str_replace_all(scientific_name, "ssp\\.", "subsp."),
-    scientific_name = str_replace_all(scientific_name, " x ", " \u00D7 ") |> 
-      str_squish()
-  ) |>
-  filter(!is.na(scientific_name), scientific_name != "") |>
+  mutate(scientific_name_original = scientific_name,
+         scientific_name = str_replace_all(scientific_name, "ssp.", "subsp."),         # correct subspecies labelling
+         scientific_name = str_replace_all(scientific_name, "\u00EB", "e"),
+         scientific_name = str_remove_all(scientific_name, "agg."),                    # remove aggregates
+         scientific_name = str_replace_all(scientific_name, " x ", " \u00D7 ")) |>     # correct hybrids labelling
+  filter(!is.na(scientific_name), !scientific_name == "") |> 
   tibble()
 
 # update species names
 GRUK_species <- GRUK_species |> 
-  mutate(scientific_name = recode(
-    scientific_name,
-    "Arabis wahlenbergii"       = "Arabis hirsuta",
-    "Carex paupercula"          = "Carex magellanica",
-    "Carex viridula"            = "Carex flava",
-    "Cotoneaster scandinavicus" = "Cotoneaster integerrimus",
-    "Cotoneaster symondsii"     = "Cotoneaster simonsii",
-    "Cyanus montanus"           = "Centaurea montana",
-    "Erysimum virgatum"         = "Erysimum strictum",
-    "Festuca trachyphylla"      = "Festuca brevipila",
-    "Galium album"              = "Galium mollugo",
-    "Helictotrichon pratense"   = "Avenula pratensis",
-    "Helictotrichon pubescens"  = "Avenula pubescens",
-    "Hieracium murorum"         = "Hieracium Hieracium",
-    "Hieracium vulgatum"        = "Hieracium Vulgata",
-    "Hylotelephium maximum"     = "Sedum telephium",
-    "Lepidotheca suaveolens"    = "Matricaria discoidea",
-    "Malus ×domestica"          = "Malus domestica",
-    "Pilosella peletariana"     = "Pilosella officinarum",
-    "Poa angustifolia"          = "Poa pratensis",
-    "Poa humilis"               = "Poa pratensis",
-    "Rosa dumalis"              = "Rosa vosagiaca",
-    "Sorbus hybrida"            = "Hedlundia hybrida",
-    "Spergularia salina"        = "Spergularia marina",
-    "Trifolium pallidum"        = "Trifolium pratense"
+  mutate(
+    scientific_name = case_when(
+      grepl("Arabis wahlenbergii",       scientific_name) ~ "Arabis hirsuta",
+      grepl("Carex paupercula",          scientific_name) ~ "Carex magellanica",
+      grepl("Carex viridula",            scientific_name) ~ "Carex flava",
+      grepl("Cotoneaster scandinavicus", scientific_name) ~ "Cotoneaster integerrimus",
+      grepl("Cotoneaster symondsii",     scientific_name) ~ "Cotoneaster simonsii",
+      grepl("Cyanus montanus",           scientific_name) ~ "Centaurea montana",
+      grepl("Erysimum virgatum",         scientific_name) ~ "Erysimum strictum",
+      grepl("Festuca trachyphylla",      scientific_name) ~ "Festuca brevipila",
+      grepl("Galium album",              scientific_name) ~ "Galium mollugo",
+      grepl("Helictotrichon pratense",   scientific_name) ~ "Avenula pratensis",
+      grepl("Helictotrichon pubescens",  scientific_name) ~ "Avenula pubescens",
+      grepl("Hieracium murorum",         scientific_name) ~ "Hieracium Vulgata",
+      grepl("Hieracium vulgatum",        scientific_name) ~ "Hieracium Vulgata",
+      grepl("Hylotelephium maximum",     scientific_name) ~ "Hylotelephium telephium",
+      grepl("Sedum telephium",           scientific_name) ~ "Hylotelephium telephium",
+      grepl("Lepidotheca suaveolens",    scientific_name) ~ "Matricaria discoidea",
+      #grepl("Malus × domestica",          scientific_name) ~ "Malus domestica",
+      grepl("Pilosella peletariana",     scientific_name) ~ "Pilosella officinarum",
+      grepl("Poa angustifolia",          scientific_name) ~ "Poa pratensis",
+      grepl("Poa humilis",               scientific_name) ~ "Poa pratensis",
+      grepl("Rosa dumalis",              scientific_name) ~ "Rosa vosagiaca",
+      grepl("Sorbus hybrida",            scientific_name) ~ "Hedlundia hybrida",
+      grepl("Spergularia salina",        scientific_name) ~ "Spergularia marina",
+      grepl("Trifolium pallidum",        scientific_name) ~ "Trifolium pratense",
+      TRUE ~ scientific_name
+    )
   )
-  )
-
 
 GRUK_prepared_wfo <- WFO.prepare(GRUK_species$scientific_name)
 
 GRUK_prepared <- GRUK_prepared_wfo |>
+  tibble() |> 
   mutate(
-    subspecies_epithet = if_else(!is.na(Authorship), word(Authorship, 1, 1), ""),
-    
-    # Attach subspecies epithet only if:
-    #   - we have an epithet
-    #   - AND Authorship does not contain "agg."
-    spec.name = if_else(
-      subspecies_epithet != "" & !str_detect(Authorship, "\\bagg\\.?"),
-      paste(spec.name, "subsp.", subspecies_epithet),
-      spec.name
+    # first word of Authorship
+    subspecies = if_else(!is.na(Authorship), word(Authorship, 1, 1), ""),
+    clean_string = word(spec.name, 1, 2),
+    clean_string = if_else(
+      str_detect(spec.name, " x$") |                                # ending with " x" OR
+      str_detect(spec.name, "\u00D7$") |                            # ending with "×" OR
+      str_detect(spec.name, "^\\s*[x\u00D7]\\b"),                   # starting with x/× hybrid marker
+      paste(spec.name, subspecies),
+      clean_string
     ),
-   # # attach agg. info
-   # spec.name = if_else(
-   #   str_detect(Authorship, "\\bagg\\.?") & !str_detect(spec.name, "\\bagg\\.?"),
-   #   paste(spec.name, subspecies_epithet),  # just add "agg." as a trailing word
-   #   spec.name
-   # ),
-    
-    # Handle hybrids / ×
-    spec.name = if_else(grepl(" x$", spec.name), paste(spec.name, subspecies_epithet), spec.name),
-    spec.name = if_else(grepl("\u00D7$", spec.name), paste(spec.name, subspecies_epithet), spec.name),
-    spec.name = if_else(grepl("^\u00D7", Authorship), paste(spec.name, subspecies_epithet), spec.name),
-    
-    # Clean out 'sect.'
-    spec.name = spec.name |>
-      str_replace_all("\\bsect\\b\\.?", " ") |>
-      str_squish() |> 
-     str_to_sentence()
-  ) |>
-  rename(clean_string = spec.name) |>
-  # create species names without subspecies
-  mutate(clean_string_no_sub = str_remove(pattern = "subsp\\..*$", string = clean_string)) |> 
-  distinct(spec.full, clean_string_no_sub) 
+    clean_string = if_else(                                         # remove 'sect.'
+      str_detect(spec.name, "sect."),
+      paste(word(clean_string, 1, 1), word(spec.full, 3, 3)),
+      clean_string
+    )
+    ) |>
+  # unique values in spec.full and clean_string only
+  distinct(spec.full, clean_string)
 
 
 
 # standardise names to the WFO backbone
-GRUK_sp_matched <- WFO.match(spec.data = GRUK_prepared$clean_string_no_sub,
+GRUK_sp_matched <- WFO.match(spec.data = GRUK_prepared$clean_string,
                              WFO.data = wfo_backbone,
                              Fuzzy = 0.15,
                              Fuzzy.max = 50,
@@ -460,8 +424,8 @@ GRUK_sp_matched <- WFO.match(spec.data = GRUK_prepared$clean_string_no_sub,
 # create accepted name column according to latest taxonomical nomenclature
 GRUK_sp_clean <- GRUK_sp_matched |>
   # First, store the original string clearly
-  rename(clean_string_no_sub = spec.name.ORIG) |>
-  group_by(clean_string_no_sub) |>
+  rename(clean_string = spec.name.ORIG) |>
+  group_by(clean_string) |>
   summarise(
     # 1) Flag multiple scientificName suggestions
     flag_multiple_suggestions = n_distinct(scientificName) > 1,
@@ -486,8 +450,8 @@ GRUK_sp_clean <- GRUK_sp_matched |>
 
 
 # check the species that change name where many options were available
-GRUK_sp_clean |> filter(clean_string_no_sub != accepted_name)
-GRUK_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string_no_sub != accepted_name)
+GRUK_sp_clean |> filter(clean_string != accepted_name)
+GRUK_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name)
 
 
 # correct incorrect corrections. haha
@@ -495,30 +459,31 @@ GRUK_sp_clean <- GRUK_sp_clean |>
   mutate(
     flag_species_revert =
       case_when(
-        clean_string_no_sub == "Hieracium vulgata" ~ "added",
-        clean_string_no_sub == "Potentilla anserina" ~ "added",
+        clean_string == "Hieracium vulgata" ~ "added",
+        clean_string == "Hieracium murorum" ~ "edited",
+        clean_string == "Potentilla anserina" ~ "added",
         TRUE ~ ""
         
       ),
     accepted_name = case_when(
-        clean_string_no_sub == "Hieracium vulgata" ~ "Hieracium Vulgata",
-        clean_string_no_sub == "Potentilla anserina" ~ "Argentina anserina",
+        clean_string == "Hieracium vulgata" ~ "Hieracium Vulgata",
+        clean_string == "Hieracium murorum" ~ "Hieracium Vulgata",
+        clean_string == "Potentilla anserina" ~ "Argentina anserina",
       TRUE ~ accepted_name
     ))
 
 
 
 # bind new species names onto original dataset
-GRUK_species_clean <- left_join(GRUK_prepared, GRUK_sp_clean, by = "clean_string_no_sub") |> 
+GRUK_species_clean <- full_join(GRUK_prepared, GRUK_sp_clean, by = "clean_string") |> 
   full_join(GRUK_species, by = join_by(spec.full == scientific_name)) |> 
-  # add "sp." back onto genus-level identifications
   mutate(accepted_name = case_when(
-    is.na(word(accepted_name, 2)) ~ paste(accepted_name, "sp."),
+    is.na(accepted_name)& !grepl("Hieracium", spec.full) ~ str_to_sentence(spec.full),
+    is.na(accepted_name)& grepl("Hieracium", spec.full) ~ spec.full,
     TRUE ~ accepted_name
-    )) |> 
-  # filter out sect. species and subspecies
-  #filter(!grepl("subsp.", scientific_name_original)) |> 
-  distinct()
+  )) |> 
+  distinct() |> 
+  filter(!is.na(accepted_name))
 
 
 # check for original species with no matched accepted name.
@@ -528,22 +493,21 @@ GRUK_species_clean |>
 # none.
 
 
-
+#GRUK_species_clean |> group_by(accepted_name, global_id) |> mutate(n = n_distinct(art_dekning)) |>  filter(n > 1)
 
 # merge species data with indicators
 
 GRUK_species_ind <- GRUK_species_clean |>
-  select(accepted_name, art_dekning, parent_global_id, polygon_id, rute_id) |> 
-  left_join(tyler_species_clean |> 
-              select(accepted_name, Moisture, Nitrogen)) |> 
+  select(parent_global_id, polygon_id, rute_id, creation_date, species = accepted_name, art_dekning) |> 
+  left_join(tyler_indicators,
+            by = join_by("species")) |> 
   tibble()
 
 
 summary(GRUK_species_ind)
 
 # checking which species didn't find a match
-unique(GRUK_species_ind[is.na(GRUK_species_ind$Moisture & 
-                                is.na(GRUK_species_ind$Nitrogen)),'accepted_name'])# |> view()
+unique(GRUK_species_ind[is.na(GRUK_species_ind$Moisture),'species'])# |> view()
 
 
 
@@ -703,14 +667,13 @@ GRUK_all <- GRUK_species_ind |>
 # fixing variable types
 GRUK_all <- GRUK_all |> 
   mutate(across(
-    c(accepted_name, kartleggingsenhet_1_5000, lokalitetskvalitet, kommune, tilstand, naturmangfold, nin_kartleggingsenheter),
+    c(species, kartleggingsenhet_1_5000, lokalitetskvalitet, kommune, tilstand, naturmangfold, nin_kartleggingsenheter),
     as.factor
   ),
   across(
     c(areal_m2, dekning_nakent_berg, dekning_problemarter),
     as.numeric
   )) |> 
-  rename(species = accepted_name) |> 
 # trimming away the points without information on NiN, species or cover  
     filter(!is.na(species), !is.na(art_dekning))
 
@@ -822,6 +785,7 @@ ASO_species <- ASO_species  |>
     "Hieracium murorum"           = "Hieracium Vulgata",
     "Hieracium vulgatum"          = "Hieracium umbellatum",
     "Hylotelephium maximum"       = "Hylotelephium telephium",
+    "Sedum maximum"               = "Hylotelephium telephium",
     "Listera cordata"             = "Neottia cordata",
     "Listera ovata"               = "Neottia ovata",
     "Omalotheca norvegica"        = "Gnaphalium norvegicum",
@@ -922,7 +886,16 @@ ASO_sp_clean <- ASO_sp_clean |>
 # bind new species names onto original dataset
 ASO_species_clean <- left_join(ASO_prepared, ASO_sp_clean, by = "clean_string") |> 
   full_join(ASO_species, by = join_by(spec.full == scientific_name_no_sub)) |> 
-  distinct()
+  distinct() |> 
+  # add on Hieracium Vulgata group
+  mutate(
+    accepted_name = case_when(
+      norsk_navn == "skogsvevegruppa" ~ paste("Hieracium", str_sub(karplantenavn, 19, 27))  |> str_squish(),
+      norsk_navn == "beitesvevegruppa" ~ paste("Hieracium", str_sub(karplantenavn, 20, 26))  |> str_squish(),
+      norsk_navn == "skjermsvevegruppa" ~ paste("Hieracium", str_sub(karplantenavn, 21, 32))  |> str_squish(),
+      TRUE ~ accepted_name
+    )
+  )
 
 
 # check for original species with no matched accepted name.
@@ -937,17 +910,16 @@ ASO_species_clean |>
 
 ## merge species data with indicators
 ASO_species_ind <- ASO_species_clean |>
-  select(accepted_name, art_dekning, ParentGlobalID) |> 
+  select(species = accepted_name, art_dekning, ParentGlobalID) |> 
   filter(!is.na(art_dekning)) |> 
-  left_join(tyler_species_clean |> 
-              select(accepted_name, Moisture, Nitrogen)) |> 
+  left_join(tyler_indicators |> 
+              select(species, Moisture)) |> 
   tibble()
 
 
 
 # checking which species didn't find a match
-unique(ASO_species_ind[is.na(ASO_species_ind$Moisture & 
-                                is.na(ASO_species_ind$Nitrogen)),'accepted_name'])
+unique(ASO_species_ind[is.na(ASO_species_ind$Moisture),'species'])
 
 
 
@@ -962,10 +934,9 @@ ASO_all <- ASO_species_ind |>
 # fixing variable types
 ASO_all <- ASO_all |> 
   mutate(across(
-    c(accepted_name, nin_grunntype, omradenummer_flatenummer, eng_id, aso_id),
+    c(species, nin_grunntype, omradenummer_flatenummer, eng_id, aso_id),
     as.factor
   )) |> 
-  rename(species = accepted_name) |> 
   # trimming away the points without information on NiN, species or cover  
   filter(!is.na(species), !is.na(art_dekning), !is.na(nin_grunntype))
 
@@ -988,7 +959,7 @@ ano_species <- ano_species |>
          scientific_name = str_remove_all(scientific_name, "agg."),                    # remove aggregates
          scientific_name = str_replace_all(scientific_name, " x ", " \u00D7 "),     # correct hybrids labelling
          scientific_name = str_to_sentence(scientific_name),
-         scientific_name_no_sub = if_else(
+         scientific_name = if_else(
            is.na(word(scientific_name, 2)),        # only one word (no species epithet)
            word(scientific_name, 1),              # just genus
            word(scientific_name, 1, 2)            # genus + species
@@ -999,93 +970,92 @@ ano_species <- ano_species |>
   filter(!is.na(scientific_name), !scientific_name == "") |> 
   tibble()
 
-ano_prepared_wfo <- ano_species |> 
-  distinct(scientific_name_no_sub, scientific_name_original)
-
 
 # recode species names for WFO matching
-ano_prepared_wfo <- ano_prepared_wfo |> 
-  mutate(scientific_name_no_sub = recode(
-    scientific_name_no_sub,
-    "Agrostis hyemalis"              = "Agrostis scabra",
-    "Antennaria lapponica"           = "Antennaria alpina",
-    "Antennaria porsildii"           = "Antennaria alpina",
-    "Arctous alpinus"                = "Arctous alpina",
-    "Betula tortuosa"                = "Betula pubescens",
-    "Blysmopsis rufa"                = "Blysmus rufus",
-    "Cardamine nymanii"              = "Cardamine pratensis",
-    "Carex adelostoma"               = "Carex buxbaumii",
-    "Carex concolor"                 = "Carex aquatilis",
-    "Carex leersii"                  = "Carex echinata",
-    "Carex myosuroides"              = "Kobresia myosuroides",
-    "Carex paupercula"               = "Carex magellanica",
-    "Carex simpliciuscula"           = "Kobresia simpliciuscula",
-    "Carex viridula"                 = "Carex flava",
-    "Chamaepericlymenum suecicum"    = "Cornus suecia",
-    "Cicerbita alpina"               = "Lactuca alpina",
-    "Cornus suecia"                  = "Cornus suecica",
-    "Cotoneaster scandinavicus"      = "Cotoneaster integerrimus",
-    "Dactylorhiza viridis"           = "Coeloglossum viride",
-    "Diphasiastrum alpinum"          = "Lycopodium alpinum",
-    "Diphasiastrum complanatum"      = "Lycopodium complanatum",
-    "Dryopteris affinis"             = "Dryopteris filix-mas",
-    "Empetrum hermaphroditum"        = "Empetrum nigrum",
-    "Elymus alaskanus"               = "Elymus kronokensis",
-    "Festuca prolifera"              = "Festuca rubra",
-    "Galium album"                   = "Galium mollugo",
-    "Galium elongatum"               = "Galium palustre",
-    "Helictotrichon pratense"        = "Avenula pratensis",
-    "Helictotrichon pubescens"       = "Avenula pubescens",
-    "Hieracium alpina"               = "Hieracium Alpina",
-    "Hieracium alpinum"              = "Hieracium Alpina",
-    "Hieracium hieracium"            = "Hieracium Hieracium",
-    "Hieracium hieracioides"         = "Hieracium umbellatum",
-    "Hieracium murorum"              = "Hieracium Vulgata",
-    "Hieracium oreadea"              = "Hieracium Oreadea",
-    "Hieracium prenanthoidea"        = "Hieracium Prenanthoidea",
-    "Hieracium vulgata"              = "Hieracium Vulgata",
-    "Hieracium pilosella"            = "Pilosella officinarum",
-    "Hieracium vulgatum"             = "Hieracium umbellatum",
-    "Hierochloã« alpina"             = "Hierochloë alpina",
-    "Hierochloã« hirta"              = "Hierochloë hirta",
-    "Hierochloã« odorata"            = "Hierochloë odorata",
-    "Huperzia appressa"              = "Huperzia selago",
-    "Huperzia arctica"               = "Huperzia selago",
-    "Hylotelephium maximum"          = "Sedum telephium",
-    "Listera cordata"                = "Neottia cordata",
-    "Leontodon autumnalis"           = "Scorzoneroides autumnalis",
-    "Loiseleuria procumbens"         = "Kalmia procumbens",
-    "Minuartia rubella"              = "Sabulina rubella",
-    "Minuartia stricta"              = "Sabulina stricta",
-    "Mycelis muralis"                = "Lactuca muralis",
-    "Omalotheca supina"              = "Gnaphalium supinum",
-    "Omalotheca norvegica"           = "Gnaphalium norvegicum",
-    "Omalotheca sylvatica"           = "Gnaphalium sylvaticum",
-    "Oreopteris limbosperma"         = "Thelypteris limbosperma",
-    "Oxycoccus microcarpus"          = "Vaccinium microcarpum",
-    "Oxycoccus palustris"            = "Vaccinium oxycoccos",
-    "Phalaris minor"                 = "Phalaris arundinacea",
-    "Pinus unicinata"                = "Pinus mugo",
-    "Poa alpigena"                   = "Poa pratensis",
-    "Poa angustifolia"               = "Poa pratensis",
-    "Poa ×jemtlandica"               = "Poa alpina",
-    "Potentilla anserina"            = "Argentina anserina",
-    "Potentilla arenosa"             = "Potentilla nivea",
-    "Pyrola grandiflora"             = "Pyrola rotundifolia",
-    "Rubus fruticosus"               = "Rubus plicatus",
-    "Rumex alpestris"               = "Rumex acetosa",
-    "Stellaria uliginosa"            = "Stellaria alsine",
-    "Syringa emodi"                  = "Syringa vulgaris",
-    "Taraxacum crocea"               = "Taraxacum officinale",
-    "Taraxacum croceum"              = "Taraxacum officinale",
-    "Trientalis europaea"           = "Lysimachia europaea",
-    "Trifolium pallidum"            = "Trifolium pratense",
-    "Veratrum lobelianum"           = "Veratrum album"
-  )
-)
+ano_species <- ano_species |> 
+  mutate(scientific_name = case_when(
+      grepl("Agrostis hyemalis",              scientific_name) ~ "Agrostis scabra",
+      grepl("Antennaria lapponica",           scientific_name) ~ "Antennaria alpina",
+      grepl("Antennaria porsildii",           scientific_name) ~ "Antennaria alpina",
+      grepl("Arctous alpinus",                scientific_name) ~ "Arctous alpina",
+      grepl("Betula tortuosa",                scientific_name) ~ "Betula pubescens",
+      grepl("Blysmopsis rufa",                scientific_name) ~ "Blysmus rufus",
+      grepl("Cardamine nymanii",              scientific_name) ~ "Cardamine pratensis",
+      grepl("Carex adelostoma",               scientific_name) ~ "Carex buxbaumii",
+      grepl("Carex concolor",                 scientific_name) ~ "Carex aquatilis",
+      grepl("Carex leersii",                  scientific_name) ~ "Carex echinata",
+      grepl("Carex myosuroides",              scientific_name) ~ "Kobresia myosuroides",
+      grepl("Carex paupercula",               scientific_name) ~ "Carex magellanica",
+      grepl("Carex simpliciuscula",           scientific_name) ~ "Kobresia simpliciuscula",
+      grepl("Carex viridula",                 scientific_name) ~ "Carex flava",
+      grepl("Chamaepericlymenum suecicum",    scientific_name) ~ "Cornus suecia",
+      grepl("Cicerbita alpina",               scientific_name) ~ "Lactuca alpina",
+      grepl("Cornus suecia",                  scientific_name) ~ "Cornus suecica",
+      grepl("Cotoneaster scandinavicus",      scientific_name) ~ "Cotoneaster integerrimus",
+      grepl("Dactylorhiza viridis",           scientific_name) ~ "Coeloglossum viride",
+      grepl("Diphasiastrum alpinum",          scientific_name) ~ "Lycopodium alpinum",
+      grepl("Diphasiastrum complanatum",      scientific_name) ~ "Lycopodium complanatum",
+      grepl("Dryopteris affinis",             scientific_name) ~ "Dryopteris filix-mas",
+      grepl("Empetrum hermaphroditum",        scientific_name) ~ "Empetrum nigrum",
+      grepl("Elymus alaskanus",               scientific_name) ~ "Elymus kronokensis",
+      grepl("Festuca prolifera",              scientific_name) ~ "Festuca rubra",
+      grepl("Galium album",                   scientific_name) ~ "Galium mollugo",
+      grepl("Galium elongatum",               scientific_name) ~ "Galium palustre",
+      grepl("Helictotrichon pratense",        scientific_name) ~ "Avenula pratensis",
+      grepl("Helictotrichon pubescens",       scientific_name) ~ "Avenula pubescens",
+      grepl("Hieracium alpina",               scientific_name) ~ "Hieracium Alpina",
+      grepl("Hieracium alpinum",              scientific_name) ~ "Hieracium Alpina",
+      grepl("Hieracium hieracium",            scientific_name) ~ "Hieracium Hieracium",
+      grepl("Hieracium hieracioides",         scientific_name) ~ "Hieracium umbellatum",
+      grepl("Hieracium murorum",              scientific_name) ~ "Hieracium Vulgata",
+      grepl("Hieracium oreadea",              scientific_name) ~ "Hieracium Oreadea",
+      grepl("Hieracium prenanthoidea",        scientific_name) ~ "Hieracium Prenanthoidea",
+      grepl("Hieracium vulgata",              scientific_name) ~ "Hieracium Vulgata",
+      grepl("Hieracium pilosella",            scientific_name) ~ "Pilosella officinarum",
+      grepl("Hieracium vulgatum",             scientific_name) ~ "Hieracium umbellatum",
+      #grepl("Hierochloã« alpina",             scientific_name) ~ "Hierochloë alpina",
+      #grepl("Hierochloã« hirta",              scientific_name) ~ "Hierochloë hirta",
+      #grepl("Hierochloã« odorata",            scientific_name) ~ "Hierochloë odorata",
+      grepl("Huperzia appressa",              scientific_name) ~ "Huperzia selago",
+      grepl("Huperzia arctica",               scientific_name) ~ "Huperzia selago",
+      grepl("Hylotelephium maximum",          scientific_name) ~ "Hylotelephium telephium",
+      grepl("Listera cordata",                scientific_name) ~ "Neottia cordata",
+      grepl("Leontodon autumnalis",           scientific_name) ~ "Scorzoneroides autumnalis",
+      grepl("Loiseleuria procumbens",         scientific_name) ~ "Kalmia procumbens",
+      grepl("Minuartia rubella",              scientific_name) ~ "Sabulina rubella",
+      grepl("Minuartia stricta",              scientific_name) ~ "Sabulina stricta",
+      grepl("Mycelis muralis",                scientific_name) ~ "Lactuca muralis",
+      grepl("Omalotheca supina",              scientific_name) ~ "Gnaphalium supinum",
+      grepl("Omalotheca norvegica",           scientific_name) ~ "Gnaphalium norvegicum",
+      grepl("Omalotheca sylvatica",           scientific_name) ~ "Gnaphalium sylvaticum",
+      grepl("Oreopteris limbosperma",         scientific_name) ~ "Thelypteris limbosperma",
+      grepl("Oxycoccus microcarpus",          scientific_name) ~ "Vaccinium microcarpum",
+      grepl("Oxycoccus palustris",            scientific_name) ~ "Vaccinium oxycoccos",
+      grepl("Phalaris minor",                 scientific_name) ~ "Phalaris arundinacea",
+      grepl("Pinus unicinata",                scientific_name) ~ "Pinus mugo",
+      grepl("Poa alpigena",                   scientific_name) ~ "Poa pratensis",
+      grepl("Poa angustifolia",               scientific_name) ~ "Poa pratensis",
+      #grepl("Poa ×jemtlandica",               scientific_name) ~ "Poa alpina",
+      grepl("Potentilla anserina",            scientific_name) ~ "Argentina anserina",
+      grepl("Potentilla arenosa",             scientific_name) ~ "Potentilla nivea",
+      grepl("Pyrola grandiflora",             scientific_name) ~ "Pyrola rotundifolia",
+      grepl("Rubus fruticosus",               scientific_name) ~ "Rubus plicatus",
+      grepl("Rumex alpestris",                scientific_name) ~ "Rumex acetosa",
+      grepl("Stellaria uliginosa",            scientific_name) ~ "Stellaria alsine",
+      grepl("Syringa emodi",                  scientific_name) ~ "Syringa vulgaris",
+      grepl("Taraxacum crocea",               scientific_name) ~ "Taraxacum officinale",
+      grepl("Taraxacum croceum",              scientific_name) ~ "Taraxacum officinale",
+      grepl("Trientalis europaea",           scientific_name) ~ "Lysimachia europaea",
+      grepl("Trifolium pallidum",            scientific_name) ~ "Trifolium pratense",
+      grepl("Veratrum lobelianum",           scientific_name) ~ "Veratrum album",
+      TRUE ~ scientific_name)
+      )
+
+ano_prepared_wfo <- ano_species |> 
+  distinct(scientific_name, scientific_name_original)
 
 # prepare dataset for WFO matching
-ano_prepared_wfo <- WFO.prepare(ano_prepared_wfo$scientific_name_no_sub)
+ano_prepared_wfo <- WFO.prepare(ano_prepared_wfo$scientific_name)
 
 # reconnect subspecies with corresponding species from authorship column
 ano_prepared <- ano_prepared_wfo |>
@@ -1151,11 +1121,13 @@ ano_sp_clean <- ano_sp_clean |>
     flag_species_revert =
       case_when(
         grepl("Hieracium", clean_string) ~ "edited",
+        clean_string == "Poa jemtlandica" ~ "edited",
         TRUE ~ ""
         
       ),
     accepted_name = case_when(
         grepl("Hieracium", clean_string) ~ clean_string,
+        accepted_name == "Poa jemtlandica" ~ "Poa alpina",
       TRUE ~ accepted_name
     ))
 
@@ -1163,16 +1135,41 @@ ano_sp_clean <- ano_sp_clean |>
 ano_sp_clean |> filter(flag_multiple_suggestions == TRUE, clean_string != accepted_name) #|> view()
 
 
-
-# bind new species names onto indicator dataset
 ano_species_clean <- left_join(ano_prepared, ano_sp_clean, by = "clean_string") |> 
-  full_join(ano_species, by = join_by(spec.full == scientific_name_no_sub)) |> 
+  full_join(ano_species, by = join_by(spec.full == scientific_name)) |> 
   # filter out sect. species and subspecies
   #filter(!grepl("subsp.", scientific_name_original)) |> 
-  distinct()
+  distinct() |> 
+  filter(!is.na(accepted_name))
 
 ano_species_clean |> filter(is.na(accepted_name))
 
+
+
+## merge species data with indicators
+ANO_species_ind <- ano_species_clean |>                                 # fix species match here
+  select(species = accepted_name, art_dekning, parentglobalid) |> 
+  full_join(tyler_indicators |> 
+              select(species, Moisture)) |> 
+  tibble()
+
+
+
+# checking which species didn't find a match
+unique(ANO_species_ind[is.na(ANO_species_ind$Moisture),'species']) # |> view()
+
+
+
+# fixing variable types
+ANO_species_ind <- ANO_species_ind |> 
+  mutate(across(
+    c(species),
+    as.factor
+  )) |> 
+  # trimming away the points without information on NiN, species or cover  
+  filter(!is.na(species), !is.na(art_dekning))
+
+summary(ANO_species_ind)
 
 
 
@@ -1192,7 +1189,9 @@ ano_geo <- ano_geo |>
       "V7"  = "Wetland", "V8"  = "Wetland",
       "T31" = "Seminat", "T32" = "Seminat", "T33" = "Seminat", "T34" = "Seminat", "V9"  = "Seminat", "V10" = "Seminat",
       "T2"  = "Natopen", "T8"  = "Natopen", "T11" = "Natopen", "T12" = "Natopen", "T13" = "Natopen", "T15" = "Natopen", 
-      "T16" = "Natopen", "T18" = "Natopen", "T21" = "Natopen", "T24" = "Natopen", "T29" = "Natopen"
+      "T16" = "Natopen", "T18" = "Natopen", "T21" = "Natopen", "T24" = "Natopen", "T29" = "Natopen",
+      "T41" = "Seminat", # DOUBLE CHECK THIS!
+      "T45" = "Seminat"  # DOUBLE CHECK THIS!
     )
   )
 
@@ -1243,8 +1242,8 @@ ano_geo <- ano_geo |>
   )
 
 ## 4. Filter lowland plots points
-ano_lowlands <- ano_geo |>
-  filter(hovedoekosystem_rute %in% c("Natopen", "Seminat"))
+ano_lowlands <- ano_geo# |>
+  #filter(hovedoekosystem_rute %in% c("Natopen", "Seminat", "T45", "T41"))
 
 ## 5. Read Norway / regions, join to open lowlands points
 
@@ -1275,36 +1274,12 @@ ano_lowlands <- st_join(
 )
 
 
-
-
-## merge species data with indicators
-ANO_species_ind <- ano_species_clean |>                                 # fix species match here
-  select(accepted_name, art_dekning, parentglobalid) |> 
-  full_join(tyler_species_clean |> 
-              select(accepted_name, Moisture, Nitrogen)) |> 
-  tibble()
-
-
-
-# checking which species didn't find a match
-unique(ANO_species_ind[is.na(ANO_species_ind$Moisture & 
-                               is.na(ANO_species_ind$Nitrogen)),'accepted_name']) # |> view()
-
-
-
-# fixing variable types
 ANO_species_ind <- ANO_species_ind |> 
-  mutate(across(
-    c(accepted_name),
-    as.factor
-  )) |> 
-  rename(species = accepted_name)# |> 
-  # trimming away the points without information on NiN, species or cover  
-  #filter(!is.na(species), !is.na(art_dekning))
-
-summary(ANO_species_ind)
-
-
+  left_join(ano_lowlands |> select("globalid","ano_flate_id","ano_punkt_id","ssb_id","aar", "hovedtype_rute","kartleggingsenhet_1m2",
+                             #"bruksintensitet","beitetrykk","slatteintensitet", "tungekjoretoy","slitasje",
+                             "vedplanter_total_dekning","busker_dekning","tresjikt_dekning","roesslyng_dekning"), 
+            by = join_by(parentglobalid == globalid)) |> 
+  filter(!is.na(hovedtype_rute))
 
 
 #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### #### 
@@ -1613,15 +1588,15 @@ nin_species_clean |> filter(is.na(accepted_name))
 # Merge with indicator values
 nin_sp_ind <- nin_species_clean |>
   select(Nature_Type, Sub_Type, nin_id, nin_code, species = accepted_name, species_group, cover) |> 
-  left_join(tyler_species_clean |> 
-              select(species = accepted_name, Moisture, Nitrogen),
+  left_join(tyler_indicators |> 
+              select(species, Moisture),
             by = join_by(species)) |> 
   tibble()
 
 
 # double check species matching
 nin_sp_ind |> filter(is.na(species))  
-nin_sp_ind |> filter(is.na(Moisture)&is.na(Nitrogen)) |>  distinct(species)  # some species to sort here.
+nin_sp_ind |> filter(is.na(Moisture)) |>  distinct(species)
 
 
 coverscale <- data.frame(
@@ -1664,6 +1639,8 @@ sp    <- abun_wide$sp
 abun  <- abun_wide[, -1]  # drop 'sp' column; remaining columns are NiN types
 ind   <- ind_wide[, -1]   # drop 'sp'; remaining columns are indicators
 
+
+rm(wfo_backbone)
 
 ```
 
@@ -1823,17 +1800,9 @@ Next, we need to derive scaling values from these bootstrap-lists (the columns) 
 # every NiN-type is represented by one 'generalisert artsliste'
 # some NiN-types are represented by two such species lists
 # in some cases two NiN-types are represented by the same species list
-#head(lowland_ref_cov[[1]])
-lowland_ref_cov[[1]][0,]
 
 # NiN-types where each type is represented by one species list (including when one species list represents two NiN-types), i.e. excluding types with a- and b-suffix
 names(lowland_ref_cov[["Moisture"]])
-
-nin_doubles <- colnames(lowland_ref_cov[["Moisture"]]) |> str_subset("[abcd]$")
-
-# remove a-b-c-d subtypes
-colnames(lowland_ref_cov[["Moisture"]]) <- colnames(lowland_ref_cov[["Moisture"]]) |> 
-  str_remove("[abcd]$")
 
 
 # 2 indicator-value indicators: Moisture, "Moisture"
@@ -1841,7 +1810,6 @@ indEll.n=2
 # creating a table to hold:
 # for every indicator: the 0.5 quantile (median), 0.025 quantile and  0.975 quantile for each NiN-type (3 metrics -> 3 columns per indicator), for Heat_requirement in alpine/arctic systems we do 0.05 quantile and  0.95 quantile and ignore the former as it is a one-sided indicator
 # for every nature type (nrows)
-tab <- matrix(ncol=3*indEll.n, nrow=24 ) # 24 basic ecosystem types
 # coercing the values into the table
 
 myQuantiles <- c(0.025, 0.5, 0.975)
@@ -1922,60 +1890,14 @@ tab <- bind_rows(tab_single, tab_multi)
 
 tab
 
-nin_cols    <- names(lowland_ref_cov[["Moisture"]]) |> 
-  str_subset("^(T|V)[0-9]")
+# take first nin type where multiple are listed
+tab <- tab |> mutate(NiN = str_replace(NiN, "(.*?C[^C]*?)C.*", "\\1"))
 
-for (i in 1:length(x) ) {
-  tab[i,1:3] <- quantile(as.matrix(lowland_ref_cov[["Moisture"]][,x[i]]),probs=myQuantiles,na.rm=T)
-  tab[i,4:6] <- quantile(as.matrix(lowland_ref_cov[["Moisture"]][,x[i]]),probs=myQuantiles,na.rm=T)
-}
-
-tab <- as.data.frame(tab)
-tab$NiN <- NA
-tab$NiN[1:length(x)] <- names(lowland_ref_cov[[1]])[x]
-tab
-
-
-# NiN-types represented by several species lists
-forest.NiNtypes2 <- forest.NiNtypes[-x]
-unique(forest.NiNtypes2)
-grep(pattern=unique(forest.NiNtypes2)[1], x=forest.NiNtypes) # finds columns in e.g. colnames(forest.ref.cov[["Light"]]) that match the first NiN-type
-
-
-for (i in 1:length(unique(forest.NiNtypes2)) ) {
-  
-  tab[length(x)+i,1:3] <- quantile(as.matrix(forest.ref.cov[["Moisture"]][,grep(pattern=unique(forest.NiNtypes2)[i], x=forest.NiNtypes)]),probs=myQuantiles,na.rm=T)
-  tab[length(x)+i,4:6] <- quantile(as.matrix(forest.ref.cov[["Moisture"]][,grep(pattern=unique(forest.NiNtypes2)[i], x=forest.NiNtypes)]),probs=myQuantiles,na.rm=T)
-
-  tab$NiN[length(x)+i] <- unique(forest.NiNtypes2)[i]
-  
-}
-
-tab
-
-# when species lists represent several NiN-types
-# does not apply here
-#tab$NiN
-#tab <- rbind(tab,tab[c(27:30,42,44,47,55:57,60,62,71,83,85),])
-#tab$NiN[c(27:30,42,44,47,55:57,60,62,71,83,85,88:102)] <- c("T3-C3","T3-C9","T3-C5","T3-C8",
-#                                                            "T7-C13","T7-C7","T22-C2","T32-C1",
-#                                                            "T32-C3","T32-C7","T45-C1","V10-C1","T22-C1",
-#                                                            "T32-C5","T32-C21",
-#                                                            
-#                                                            "T3-C6","T3-C12","T3-C5","T3-C11",
-#                                                            "T7-C14","T7-C9","T22-C4","T32-C2",
-#                                                            "T32-C4","T32-C8","T45-C2","V10-C2","T22-C3",
-#                                                            "T32-C20","T32-C6")
-#tab
 
 # making it a proper data frame
 dim(tab)
-round(tab[,1:6],digits=2)
+round(tab[,2:7],digits=2)
 
-colnames(tab) <- c("Moist_q2.5","Moist_q50","Moist_q97.5",
-                   "Moisture_q2.5","Moisture_q50","Moisture_q97.5",
-
-                   "NiN")
 summary(tab)
 tab$NiN <- gsub("C", "C-", tab$NiN) # add extra hyphen after C for NiN-types
 tab
@@ -1983,129 +1905,160 @@ tab
 
 # restructuring into separate indicators for lower (q2.5) and higher (q97.5) than reference value (=median, q50)
 y.Moist <- numeric(length=nrow(tab)*2)
-y.Moist[((1:dim(tab)[1])*2)-1] <- tab$Moist_q2.5 
-y.Moist[((1:dim(tab)[1])*2)] <- tab$Moist_q97.5 
+y.Moist[((1:dim(tab)[1])*2)-1] <- tab$Moisture_025 
+y.Moist[((1:dim(tab)[1])*2)] <- tab$Moisture_975 
 
 y.Moisture <- numeric(length=nrow(tab)*2)
-y.Moisture[((1:dim(tab)[1])*2)-1] <- tab$Moisture_q2.5 
-y.Moisture[((1:dim(tab)[1])*2)] <- tab$Moisture_q97.5 
+y.Moisture[((1:dim(tab)[1])*2)-1] <- tab$Moisture_025_dup 
+y.Moisture[((1:dim(tab)[1])*2)] <- tab$Moisture_975_dup 
 
 # creating final objects holding the reference and limit values for all indicators
 
 # ref object for indicators
-forest.ref.cov.val <- data.frame( grunn=c(rep(rep(tab$NiN,each=2),indEll.n)),
+lowland_ref_cov_val <- data.frame(grunn=c(rep(rep(tab$NiN,each=2),indEll.n)),
                                                     county=rep('all',(nrow(tab)*2*indEll.n)),
                                                     region=rep('all',(nrow(tab)*2*indEll.n)),
                                                     Ind=c(rep(c('Moist1','Moist2'),nrow(tab)),
                                                           rep(c('Moisture1','Moisture2'),nrow(tab))
                                                           
                                                     ),
-                                                    Rv=c(rep(tab$Moist_q50,each=2),
-                                                         rep(tab$Moisture_q50,each=2)
+                                                    Rv=c(rep(tab$Moisture_50,each=2),
+                                                         rep(tab$Moisture_50_dup,each=2)
                                                     ),
                                                     Gv=c(y.Moist,y.Moisture),
-                                                    maxmin=c(rep(c(1,12),nrow(tab)), # 12 levels of moisture
-                                                             rep(c(1,9),nrow(tab))  # 9 levels of Moisture
+                                                    maxmin=c(rep(c(1,12),nrow(tab))  # 9 levels of Moisture
                                                     )
 )
-
-forest.ref.cov.val
-forest.ref.cov.val$grunn <- as.factor(forest.ref.cov.val$grunn)
-forest.ref.cov.val$Ind <- as.factor(forest.ref.cov.val$Ind)
-summary(forest.ref.cov.val)
+lowland_ref_cov_val <- lowland_ref_cov_val |> tibble() |> 
+  mutate(grunn = as.factor(grunn),
+         Ind = as.factor(Ind))
+summary(lowland_ref_cov_val)
 
 
 ```
 
 ```{r}
-forest.ref.cov.val |>
+lowland_ref_cov_val |>
   kable("html", caption = "Reference values (Rv and threshold values (Gv) for each indicator and nature type combination") |> kable_styling("striped") |> scroll_box(width = "100%", height = "300px")
 ```
 
-Once test data and the scaling values from the reference data are in place, we can calculate CWMs of the selected indicator for the ANO community data and scale them against the scaling values from the reference distribution. Note that we scale each ANO plots CWM against either the lower threshold value and the min value OR the upper threshold value and the max value based on whether the CWM is smaller or higher than the reference value. Since the scaled values for both sides range between 0 and 1, we generate separate lower and upper indicators for each plant functional indicator type. An ANO plot can only have a scaled value in either the lower or the upper indicator (the other one will be 'NA'), except for the unlikely event that the CWM exactly matches the reference value, in which case both lower and upper indicator will receive a scaled indicator value of 1.
+Once test data and the scaling values from the reference data are in place, we can calculate CWMs of the selected indicator for the ANO community data and scale them against the scaling values from the reference distribution. Note that we scale each ANO plot's CWM against either the lower threshold value and the min value OR the upper threshold value and the max value based on whether the CWM is smaller or higher than the reference value. Since the scaled values for both sides range between 0 and 1, we generate separate lower and upper indicators for each plant functional indicator type. An ANO plot can only have a scaled value in either the lower or the upper indicator (the other one will be 'NA'), except for the unlikely event that the CWM exactly matches the reference value, in which case both lower and upper indicator will receive a scaled indicator value of 1.
 
 For scaling ANO-data against the reference we use the normalisation function from package ecTools.
 
 ```{r}
 #| warning: false
 
+
 #### calculating scaled and non-truncated values for the indicators based on the dataset ####
 # drop geometry
-ANO.forest <- ANO.forest |>
+ano_lowlands <- ano_lowlands |>
   mutate(
-    X = st_coordinates(.)[, 1],
-    Y = st_coordinates(.)[, 2]
+    X = st_coordinates(ano_lowlands)[, 1],
+    Y = st_coordinates(ano_lowlands)[, 2],
+    kartleggingsenhet_1m2 = word(kartleggingsenhet_1m2, 1, 1)
   ) |>
-  st_drop_geometry()
+  st_drop_geometry() |> 
+  mutate(globalid_chr = as.character(globalid)) %>%
+  semi_join(
+    ANO_species_ind %>% mutate(parent_chr = as.character(parentglobalid)),
+    by = c("globalid_chr" = "parent_chr")
+  ) |> 
+  filter(hovedtype_rute %in% c("T32", "T34", "T45", "V10", "T41"))
 
-ANO.forest <- ANO.forest |>
-  mutate(
-    kartleggingsenhet_1m2 = stringr::str_remove(kartleggingsenhet_1m2, "\\s.*$")
-  )
 
-for (i in 1:nrow(ANO.forest) ) {  
-  tryCatch({
-    #print(i)
-    #print(paste(ANO.forest$ano_flate_id[i]))
-    #print(paste(ANO.forest$ano_punkt_id[i]))
-    #    ANO.forest$Hovedoekosystem_sirkel[i]
-    #    ANO.forest$Hovedoekosystem_rute[i]
-    
-    
-    
-    # if the ANO.hovedtype exists in the forest reference
-    if ( ANO.forest$hovedtype_rute[i] %in% unique(sub("\\-.*", "", forest.ref.cov.val$grunn)) ) {
-      
-      # if there is any species present in current ANO point  
-      if ( length(ANO.sp.ind[ANO.sp.ind$parentglobalid==as.character(ANO.forest$globalid[i]),'Species']) > 0 ) {
+ref_grunn <- unique(sub("\\-.*", "", as.character(lowland_ref_cov_val$grunn)))
+
+for (i in seq_len(nrow(ano_lowlands))) {
+    tryCatch({
         
+        hoved_i  <- as.character(ano_lowlands$hovedtype_rute[i])
+        global_i <- as.character(ano_lowlands$globalid[i])
+        nin_i    <- as.character(ano_lowlands[i, "kartleggingsenhet_1m2"])
         
-        # Moisture
-        dat <- ANO.sp.ind[ANO.sp.ind$parentglobalid==as.character(ANO.forest$globalid[i]),c('art_dekning','Moisture')]
-        ANO.forest[i,'richness'] <- nrow(dat)
-        dat <- dat[!is.na(dat$Moisture),]
+        # 1) hovedtype must exist in ref
+        cond_hoved <- !is.na(hoved_i) && hoved_i %in% ref_grunn
+        if (!isTRUE(cond_hoved)) next
         
-        if ( nrow(dat)>0 ) {
-          
-          val <- sum(dat[,'art_dekning'] * dat[,'Moisture'],na.rm=T) / sum(dat[,'art_dekning'],na.rm=T)
-          # lower part of distribution
-          ref <- forest.ref.cov.val[forest.ref.cov.val$Ind=='Moisture1' & forest.ref.cov.val$grunn==as.character(ANO.forest[i,"kartleggingsenhet_1m2"]),'Rv']
-          lim <- forest.ref.cov.val[forest.ref.cov.val$Ind=='Moisture1' & forest.ref.cov.val$grunn==as.character(ANO.forest[i,"kartleggingsenhet_1m2"]),'Gv']
-          maxmin <- forest.ref.cov.val[forest.ref.cov.val$Ind=='Moisture1' & forest.ref.cov.val$grunn==as.character(ANO.forest[i,"kartleggingsenhet_1m2"]),'maxmin']
-          # normalisation
-          ANO.forest[i,'Moisture1'] <- ec_normalise(variable = val, x0 = maxmin, x60 = lim, x100 = ref, fun = "linear")
-          
-          # upper part of distribution
-          ref <- forest.ref.cov.val[forest.ref.cov.val$Ind=='Moisture2' & forest.ref.cov.val$grunn==as.character(ANO.forest[i,"kartleggingsenhet_1m2"]),'Rv']
-          lim <- forest.ref.cov.val[forest.ref.cov.val$Ind=='Moisture2' & forest.ref.cov.val$grunn==as.character(ANO.forest[i,"kartleggingsenhet_1m2"]),'Gv']
-          maxmin <- forest.ref.cov.val[forest.ref.cov.val$Ind=='Moisture2' & forest.ref.cov.val$grunn==as.character(ANO.forest[i,"kartleggingsenhet_1m2"]),'maxmin']
-          # normalisation
-          ANO.forest[i,'Moisture2'] <- ec_normalise(variable = val, x0 = maxmin, x60 = lim, x100 = ref, fun = "linear")
-          
+        # 2) species data
+        dat <- ANO_species_ind[
+            ANO_species_ind$parentglobalid == global_i,
+            c("art_dekning", "Moisture")
+        ]
+        if (nrow(dat) == 0) next
+        
+        ano_lowlands[i, "richness"] <- nrow(dat)
+        dat <- dat[!is.na(dat$Moisture), ]
+        if (nrow(dat) == 0) next
+        
+        # 3) CWM Moisture
+        val <- sum(dat$art_dekning * dat$Moisture, na.rm = TRUE) /
+            sum(dat$art_dekning, na.rm = TRUE)
+        
+        ## Moisture1
+        idx1 <- lowland_ref_cov_val$Ind == "Moisture1" &
+            lowland_ref_cov_val$grunn == nin_i
+        idx1[is.na(idx1)] <- FALSE
+        
+        if (sum(idx1) == 1) {
+            ref1    <- as.numeric(lowland_ref_cov_val$Rv[idx1][[1]])
+            lim1    <- as.numeric(lowland_ref_cov_val$Gv[idx1][[1]])
+            maxmin1 <- as.numeric(lowland_ref_cov_val$maxmin[idx1][[1]])
+            
+            if (!any(is.na(c(ref1, lim1, maxmin1)))) {
+                ano_lowlands[i, "Moisture1"] <- ec_normalise(
+                    variable = val,
+                    x0   = maxmin1,
+                    x60  = lim1,
+                    x100 = ref1,
+                    fun  = "linear"
+                )
+            }
         }
         
+        ## Moisture2
+        idx2 <- lowland_ref_cov_val$Ind == "Moisture2" &
+            lowland_ref_cov_val$grunn == nin_i
+        idx2[is.na(idx2)] <- FALSE
         
-      }
-      
-    }
-    
-  }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+        if (sum(idx2) == 1) {
+            ref2    <- as.numeric(lowland_ref_cov_val$Rv[idx2][[1]])
+            lim2    <- as.numeric(lowland_ref_cov_val$Gv[idx2][[1]])
+            maxmin2 <- as.numeric(lowland_ref_cov_val$maxmin[idx2][[1]])
+            
+            if (!any(is.na(c(ref2, lim2, maxmin2)))) {
+                ano_lowlands[i, "Moisture2"] <- ec_normalise(
+                    variable = val,
+                    x0   = maxmin2,
+                    x60  = lim2,
+                    x100 = ref2,
+                    fun  = "linear"
+                )
+            }
+        }
+        
+    }, error = function(e) {
+        cat("ERROR at row", i, ":", conditionMessage(e), "\n")
+    })
 }
 
-# generate overall Moisture indicator
-ANO.forest$Moisture <- ANO.forest$Moisture1*ANO.forest$Moisture2
+# overall indicator
+ano_lowlands <- ano_lowlands |>
+    dplyr::mutate(
+        moisture  = Moisture1 * Moisture2,
+        Moisture1 = if_else(Moisture1 == 1, NA_real_, Moisture1),
+        Moisture2 = if_else(Moisture2 == 1, NA_real_, Moisture2)
+    )
 
-ANO.forest$Moisture1[ANO.forest$Moisture1==1] <- NA
-ANO.forest$Moisture2[ANO.forest$Moisture2==1] <- NA
 
 # add geometry again
-ANO.forest <- ANO.forest |>
-  st_as_sf(coords = c("X", "Y"), crs = st_crs(ANO.geo))
+ano_lowlands <- ano_lowlands |>
+  st_as_sf(coords = c("X", "Y"), crs = st_crs(ano_geo))
 
 ```
 
 ```{r}
-head(ANO.forest) |>
+head(ano_lowlands) |>
   kable("html", caption = "ANO plots for ecosystems with scaled indicator values in the far-right columns.") |> 
   kable_styling("striped") |> scroll_box(width = "100%")
 ```
@@ -2167,20 +2120,20 @@ The national and regional estimates are computed separately.
 # Norway
 
 Moisture.no <- glmmTMB(
-  Moisture ~ 1 + (1|ano_flate_id),
-  data = ANO.forest,
+  moisture ~ 1 + (1|ano_flate_id),
+  data = ano_lowlands,
   family = ordbeta
 )
 
 Moisture1.no <- glmmTMB(
   Moisture1 ~ 1 + (1|ano_flate_id),
-  data = ANO.forest[!is.na(ANO.forest$Moisture1),],
+  data = ano_lowlands[!is.na(ano_lowlands$Moisture1),],
   family = ordbeta
 )
 
 Moisture2.no <- glmmTMB(
   Moisture2 ~ 1 + (1|ano_flate_id),
-  data = ANO.forest[!is.na(ANO.forest$Moisture2),],
+  data = ano_lowlands[!is.na(ano_lowlands$Moisture2),],
   family = ordbeta
 )
 
@@ -2190,20 +2143,20 @@ summary(Moisture2.no)
 
 # regions
 Moisture.re <- glmmTMB(
-  Moisture ~ 0 + region + (1|ano_flate_id),
-  data = ANO.forest,
+  moisture ~ 0 + region + (1|ano_flate_id),
+  data = ano_lowlands,
   family = ordbeta
 )
 
 Moisture1.re <- glmmTMB(
   Moisture1 ~ 0 + region + (1|ano_flate_id),
-  data = ANO.forest[!is.na(ANO.forest$Moisture1),],
+  data = ano_lowlands[!is.na(ano_lowlands$Moisture1),],
   family = ordbeta
 )
 
 Moisture2.re <- glmmTMB(
   Moisture2 ~ 0 + region + (1|ano_flate_id),
-  data = ANO.forest[!is.na(ANO.forest$Moisture2),],
+  data = ano_lowlands[!is.na(ano_lowlands$Moisture2),],
   family = ordbeta
 )
 
@@ -2218,7 +2171,7 @@ summary(Moisture2.re)
 The model estimates and standard errors are on a logit scale, but we can calculate indicator values and confidence intervals (CI) by transforming back from logit to values between 0-1
 ```{r}
 
-NO_FUMO_004_table <- tibble(
+NO_FUMO_005_table <- tibble(
   Region = c(
     "Norway",
     "Central Norway",
@@ -2268,7 +2221,7 @@ NO_FUMO_004_table <- tibble(
     as.vector(table(Moisture1.re$frame$region))
   )
 )
-NO_FUMO_004_table
+NO_FUMO_005_table
 ```
 
 To express the results as a distribution, we need to simulate mean estimates based on the models intercept and associated standard error.
@@ -2307,11 +2260,11 @@ mu <- mu_draws_reg |>
   add_column(Norway = mu_draws) |>
   pivot_longer(everything(), names_to = "part") |>
   mutate(part = case_when(
-    part == "regionCentral.Norway" ~ "C",
-    part == "regionEastern.Norway" ~ "E",
-    part == "regionNorthern.Norway" ~ "N",
-    part == "regionWestern.Norway" ~ "W",
-    part == "regionSouthern.Norway" ~ "S",
+    part == "regionCentral_Norway" ~ "C",
+    part == "regionEastern_Norway" ~ "E",
+    part == "regionNorthern_Norway" ~ "N",
+    part == "regionWestern_Norway" ~ "W",
+    part == "regionSouthern_Norway" ~ "S",
     .default = part
   )) |>
   add_column(year = "2024")
