@@ -2179,17 +2179,11 @@ lowland_ref_cov_val |>
   kable("html", caption = "Reference values (Rv and threshold values (Gv) for each indicator and nature type combination") |> kable_styling("striped") |> scroll_box(width = "100%", height = "300px")
 ```
 
-Once test data and the scaling values from the reference data are in place, we can calculate CWMs of the selected indicator for the ANO community data and scale them against the scaling values from the reference distribution. Note that we scale each ANO plot's CWM against either the lower threshold value and the min value OR the upper threshold value and the max value based on whether the CWM is smaller or higher than the reference value. Since the scaled values for both sides range between 0 and 1, we generate separate lower and upper indicators for each plant functional indicator type. An ANO plot can only have a scaled value in either the lower or the upper indicator (the other one will be 'NA'), except for the unlikely event that the CWM exactly matches the reference value, in which case both lower and upper indicator will receive a scaled indicator value of 1.
 
-For scaling ANO-data against the reference we use the normalisation function from package ecTools.
-
-```{r}
-#| warning: false
-
-
-#### 1. calculating scaled and non-truncated values for the indicators based on the ANO dataset ####
-# drop geometry
+```{r merging datasets}
+# ANO
 ano_lowlands <- ano_lowlands |>
+  select(globalid, ano_flate_id, ano_punkt_id, ssb_id, aar, hovedoekosystem_250m2, hovedoekosystem_rute, hovedtype_rute, hovedtype_250m2, hovedtype_1m2, kartleggingsenhet_1m2, kartleggingsenhet_250m2) |> 
   mutate(
     X = st_coordinates(ano_lowlands)[, 1],
     Y = st_coordinates(ano_lowlands)[, 2],
@@ -2201,197 +2195,184 @@ ano_lowlands <- ano_lowlands |>
     ANO_species_ind %>% mutate(parent_chr = as.character(parentglobalid)),
     by = c("globalid_chr" = "parent_chr")
   ) |> 
-  filter(hovedtype_rute %in% c("T32", "T34", "T45", "V10", "T41"))
+  filter(hovedtype_rute %in% c("T32", "T34", "T45", "V10", "T41")) |> 
+    rename(kartleggingsenhet = kartleggingsenhet_1m2) |> 
+  mutate(scale = "1m2")
 
 
-ref_grunn <- unique(sub("\\-.*", "", as.character(lowland_ref_cov_val$grunn)))
-
-for (i in seq_len(nrow(ano_lowlands))) {
-    tryCatch({
-        
-        hoved_i  <- as.character(ano_lowlands$hovedtype_rute[i])
-        global_i <- as.character(ano_lowlands$globalid[i])
-        nin_i    <- as.character(ano_lowlands[i, "kartleggingsenhet_1m2"])
-        
-        # 1) hovedtype must exist in ref
-        cond_hoved <- !is.na(hoved_i) && hoved_i %in% ref_grunn
-        if (!isTRUE(cond_hoved)) next
-        
-        # 2) species data
-        dat <- ANO_species_ind[
-            ANO_species_ind$parentglobalid == global_i,
-            c("art_dekning", "Moisture")
-        ]
-        if (nrow(dat) == 0) next
-        
-        ano_lowlands[i, "richness"] <- nrow(dat)
-        dat <- dat[!is.na(dat$Moisture), ]
-        if (nrow(dat) == 0) next
-        
-        # 3) CWM Moisture
-        val <- sum(dat$art_dekning * dat$Moisture, na.rm = TRUE) /
-            sum(dat$art_dekning, na.rm = TRUE)
-        
-        ## Moisture1
-        idx1 <- lowland_ref_cov_val$Ind == "Moisture1" &
-            lowland_ref_cov_val$grunn == nin_i
-        idx1[is.na(idx1)] <- FALSE
-        
-        if (sum(idx1) == 1) {
-            ref1    <- as.numeric(lowland_ref_cov_val$Rv[idx1][[1]])
-            lim1    <- as.numeric(lowland_ref_cov_val$Gv[idx1][[1]])
-            maxmin1 <- as.numeric(lowland_ref_cov_val$maxmin[idx1][[1]])
-            
-            if (!any(is.na(c(ref1, lim1, maxmin1)))) {
-                ano_lowlands[i, "Moisture1"] <- ec_normalise(
-                    variable = val,
-                    x0   = maxmin1,
-                    x60  = lim1,
-                    x100 = ref1,
-                    fun  = "linear"
-                )
-            }
-        }
-        
-        ## Moisture2
-        idx2 <- lowland_ref_cov_val$Ind == "Moisture2" &
-            lowland_ref_cov_val$grunn == nin_i
-        idx2[is.na(idx2)] <- FALSE
-        
-        if (sum(idx2) == 1) {
-            ref2    <- as.numeric(lowland_ref_cov_val$Rv[idx2][[1]])
-            lim2    <- as.numeric(lowland_ref_cov_val$Gv[idx2][[1]])
-            maxmin2 <- as.numeric(lowland_ref_cov_val$maxmin[idx2][[1]])
-            
-            if (!any(is.na(c(ref2, lim2, maxmin2)))) {
-                ano_lowlands[i, "Moisture2"] <- ec_normalise(
-                    variable = val,
-                    x0   = maxmin2,
-                    x60  = lim2,
-                    x100 = ref2,
-                    fun  = "linear"
-                )
-            }
-        }
-        
-    }, error = function(e) {
-        cat("ERROR at row", i, ":", conditionMessage(e), "\n")
-    })
-}
-
-# overall indicator
-ano_lowlands <- ano_lowlands |>
-    dplyr::mutate(
-        moisture  = Moisture1 * Moisture2,
-        Moisture1 = if_else(Moisture1 == 1, NA_real_, Moisture1),
-        Moisture2 = if_else(Moisture2 == 1, NA_real_, Moisture2)
-    )
-
-
-# add geometry again
-ano_lowlands <- ano_lowlands |>
-  st_as_sf(coords = c("X", "Y"), crs = st_crs(ano_geo))
-
-
-
-#### 2. calculating scaled and non-truncated values for the indicators based on the ANO dataset ####
-# drop geometry
+# GRUK
 gruk_lowlands <- GRUK_all |>
   rename(globalid = parent_global_id) |> 
-  mutate(
+  mutate(globalid_chr = as.character(globalid)) |> 
+  select(-c(species, art_dekning, Moisture, polygon_id, rute_id, precision, UTM33_E_ne, UTM33_N_ne, UTM33_E_sw, UTM33_N_sw)) |> 
+  distinct() |> 
+  rename(
     X = UTM33_E,
-    Y = UTM33_N) |>
+    Y = UTM33_N, 
+    aar = year) |>
   st_drop_geometry() |> 
-  mutate(globalid_chr = as.character(globalid))
+  semi_join(
+    GRUK_species_ind  |>  mutate(parent_chr = as.character(parent_global_id)) |>  st_drop_geometry(),
+    by = c("globalid_chr" = "parent_chr")
+  ) |> 
+  mutate(hovedtype_rute = str_sub(kartleggingsenhet_1_5000, 1, 2)) |> 
+  select(globalid, globalid_chr, hovedtype_rute, aar, X, Y, kartleggingsenhet_1_5000, nin_kartleggingsenheter, hovedokosystem) |> 
+  rename(kartleggingsenhet = kartleggingsenhet_1_5000) |> 
+  mutate(scale = "1_5000")
 
+# ASO
+
+ASO_lowlands <- ASO_all |>
+  rename(globalid = ParentGlobalID) |> 
+  mutate(globalid_chr = as.character(globalid)) |> 
+  select(-c(species, art_dekning, Moisture)) |> 
+  distinct() |> 
+mutate(
+  X = st_coordinates(st_sfc(geometry))[, 1],
+  Y = st_coordinates(st_sfc(geometry))[, 2]) |> 
+  semi_join(
+    ASO_species_ind  |>  mutate(parent_chr = as.character(ParentGlobalID)) |>  st_drop_geometry(),
+    by = c("globalid_chr" = "parent_chr")
+  ) |> 
+  mutate(hovedtype_rute = str_sub(nin_grunntype, 1, 3)) |> 
+  select(globalid, globalid_chr, aso_id, hovedtype_rute, X, Y, nin_grunntype) |> 
+  rename(kartleggingsenhet = nin_grunntype)
+
+
+combined_lowlands <- bind_rows(ano_lowlands, gruk_lowlands, ASO_lowlands, .id = "dataset") |> 
+  mutate(dataset = case_match(
+    dataset, 
+    "1" ~ "ANO",
+    "2" ~ "GRUK",
+    "3" ~ "ASO"
+  ))
+
+
+
+# combine species data
+
+GRUK_species_ind <- GRUK_species_ind |> 
+  filter(!is.na(species), !is.na(art_dekning), !is.na(Moisture))
+
+ASO_species_ind <- ASO_species_ind |> 
+  filter(!is.na(species), !is.na(art_dekning), !is.na(Moisture))
+
+
+combined_species <-  bind_rows(ANO_species_ind |> select(-c(busker_dekning, tresjikt_dekning, roesslyng_dekning, ssb_id, vedplanter_total_dekning, kartleggingsenhet_1m2)), 
+                               GRUK_species_ind |> rename(parentglobalid = parent_global_id),
+                               ASO_species_ind |> rename(parentglobalid = ParentGlobalID                       ),
+                               .id = "dataset") |> 
+  mutate(dataset = case_match(
+    dataset, 
+    "1" ~ "ANO",
+    "2" ~ "GRUK",
+    "3" ~ "ASO"
+  ))
+```
+
+Once test data and the scaling values from the reference data are in place, we can calculate CWMs of the selected indicator for the ANO community data and scale them against the scaling values from the reference distribution. Note that we scale each ANO plot's CWM against either the lower threshold value and the min value OR the upper threshold value and the max value based on whether the CWM is smaller or higher than the reference value. Since the scaled values for both sides range between 0 and 1, we generate separate lower and upper indicators for each plant functional indicator type. An ANO plot can only have a scaled value in either the lower or the upper indicator (the other one will be 'NA'), except for the unlikely event that the CWM exactly matches the reference value, in which case both lower and upper indicator will receive a scaled indicator value of 1.
+
+For scaling ANO-data against the reference we use the normalisation function from package ecTools.
+
+```{r}
+#| warning: false
+
+#### 1. calculating scaled and non-truncated values for the indicators based on the datasets ####
 
 ref_grunn <- unique(sub("\\-.*", "", as.character(lowland_ref_cov_val$grunn)))
 
-for (i in seq_len(nrow(gruk_lowlands))) {
-    tryCatch({
-        
-        hoved_i  <- as.character(gruk_lowlands$hovedtype_rute[i])
-        global_i <- as.character(gruk_lowlands$globalid[i])
-        nin_i    <- as.character(gruk_lowlands[i, "kartleggingsenhet_1m2"])
-        
-        # 1) hovedtype must exist in ref
-        cond_hoved <- !is.na(hoved_i) && hoved_i %in% ref_grunn
-        if (!isTRUE(cond_hoved)) next
-        
-        # 2) species data
-        dat <- ANO_species_ind[
-            ANO_species_ind$parentglobalid == global_i,
-            c("art_dekning", "Moisture")
-        ]
-        if (nrow(dat) == 0) next
-        
-        gruk_lowlands[i, "richness"] <- nrow(dat)
-        dat <- dat[!is.na(dat$Moisture), ]
-        if (nrow(dat) == 0) next
-        
-        # 3) CWM Moisture
-        val <- sum(dat$art_dekning * dat$Moisture, na.rm = TRUE) /
-            sum(dat$art_dekning, na.rm = TRUE)
-        
-        ## Moisture1
-        idx1 <- lowland_ref_cov_val$Ind == "Moisture1" &
-            lowland_ref_cov_val$grunn == nin_i
-        idx1[is.na(idx1)] <- FALSE
-        
-        if (sum(idx1) == 1) {
-            ref1    <- as.numeric(lowland_ref_cov_val$Rv[idx1][[1]])
-            lim1    <- as.numeric(lowland_ref_cov_val$Gv[idx1][[1]])
-            maxmin1 <- as.numeric(lowland_ref_cov_val$maxmin[idx1][[1]])
-            
-            if (!any(is.na(c(ref1, lim1, maxmin1)))) {
-                gruk_lowlands[i, "Moisture1"] <- ec_normalise(
-                    variable = val,
-                    x0   = maxmin1,
-                    x60  = lim1,
-                    x100 = ref1,
-                    fun  = "linear"
-                )
-            }
-        }
-        
-        ## Moisture2
-        idx2 <- lowland_ref_cov_val$Ind == "Moisture2" &
-            lowland_ref_cov_val$grunn == nin_i
-        idx2[is.na(idx2)] <- FALSE
-        
-        if (sum(idx2) == 1) {
-            ref2    <- as.numeric(lowland_ref_cov_val$Rv[idx2][[1]])
-            lim2    <- as.numeric(lowland_ref_cov_val$Gv[idx2][[1]])
-            maxmin2 <- as.numeric(lowland_ref_cov_val$maxmin[idx2][[1]])
-            
-            if (!any(is.na(c(ref2, lim2, maxmin2)))) {
-                gruk_lowlands[i, "Moisture2"] <- ec_normalise(
-                    variable = val,
-                    x0   = maxmin2,
-                    x60  = lim2,
-                    x100 = ref2,
-                    fun  = "linear"
-                )
-            }
-        }
-        
-    }, error = function(e) {
-        cat("ERROR at row", i, ":", conditionMessage(e), "\n")
-    })
+for (i in seq_len(nrow(combined_lowlands))) {
+  tryCatch({
+    
+    ds       <- combined_lowlands$dataset[i]         # "ANO" or "GRUK"
+    hoved_i  <- as.character(combined_lowlands$hovedtype_rute[i])
+    global_i <- as.character(combined_lowlands$globalid_chr[i])
+    nin_i    <- as.character(combined_lowlands$kartleggingsenhet[i])
+    
+    # 1) hovedtype must exist in ref
+    cond_hoved <- !is.na(hoved_i) && hoved_i %in% ref_grunn
+    if (!isTRUE(cond_hoved)) next
+    
+    # 2) species data for this row and dataset
+    dat <- combined_species |>
+      dplyr::filter(
+        dataset == ds,
+        parentglobalid == global_i
+      ) |>
+      dplyr::select(art_dekning, Moisture)
+    
+    if (nrow(dat) == 0) next
+    
+    combined_lowlands$richness[i] <- nrow(dat)
+    dat <- dat[!is.na(dat$Moisture), ]
+    if (nrow(dat) == 0) next
+    
+    # 3) CWM Moisture
+    val <- sum(dat$art_dekning * dat$Moisture, na.rm = TRUE) /
+      sum(dat$art_dekning, na.rm = TRUE)
+    
+    ## Moisture1
+    idx1 <- lowland_ref_cov_val$Ind == "Moisture1" &
+      lowland_ref_cov_val$grunn == nin_i
+    idx1[is.na(idx1)] <- FALSE
+    
+    if (sum(idx1) == 1) {
+      ref1    <- as.numeric(lowland_ref_cov_val$Rv[idx1][[1]])
+      lim1    <- as.numeric(lowland_ref_cov_val$Gv[idx1][[1]])
+      maxmin1 <- as.numeric(lowland_ref_cov_val$maxmin[idx1][[1]])
+      
+      if (!any(is.na(c(ref1, lim1, maxmin1)))) {
+        combined_lowlands$Moisture1[i] <- ec_normalise(
+          variable = val,
+          x0   = maxmin1,
+          x60  = lim1,
+          x100 = ref1,
+          fun  = "linear"
+        )
+      }
+    }
+    
+    ## Moisture2
+    idx2 <- lowland_ref_cov_val$Ind == "Moisture2" &
+      lowland_ref_cov_val$grunn == nin_i
+    idx2[is.na(idx2)] <- FALSE
+    
+    if (sum(idx2) == 1) {
+      ref2    <- as.numeric(lowland_ref_cov_val$Rv[idx2][[1]])
+      lim2    <- as.numeric(lowland_ref_cov_val$Gv[idx2][[1]])
+      maxmin2 <- as.numeric(lowland_ref_cov_val$maxmin[idx2][[1]])
+      
+      if (!any(is.na(c(ref2, lim2, maxmin2)))) {
+        combined_lowlands$Moisture2[i] <- ec_normalise(
+          variable = val,
+          x0   = maxmin2,
+          x60  = lim2,
+          x100 = ref2,
+          fun  = "linear"
+        )
+      }
+    }
+    
+  }, error = function(e) {
+    cat("ERROR at row", i, ":", conditionMessage(e), "\n")
+  })
 }
 
-# overall indicator
-gruk_lowlands <- gruk_lowlands |>
-    dplyr::mutate(
-        moisture  = Moisture1 * Moisture2,
-        Moisture1 = if_else(Moisture1 == 1, NA_real_, Moisture1),
-        Moisture2 = if_else(Moisture2 == 1, NA_real_, Moisture2)
-    )
+
+combined_lowlands <- combined_lowlands |>
+  dplyr::mutate(
+    moisture  = Moisture1 * Moisture2,
+    Moisture1 = if_else(Moisture1 == 1, NA_real_, Moisture1),
+    Moisture2 = if_else(Moisture2 == 1, NA_real_, Moisture2)
+  )
 
 
 # add geometry again
-gruk_lowlands <- gruk_lowlands |>
+combined_lowlands <- combined_lowlands |>
   st_as_sf(coords = c("X", "Y"), crs = st_crs(ano_geo))
+
+
+
 
 ```
 
