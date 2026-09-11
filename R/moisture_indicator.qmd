@@ -165,6 +165,274 @@ reg$region <- c(
 regnor <- st_intersection(reg, nor)
 ```
 
+```{r species dictionary}
+species_dict_pattern <- tibble::tibble(
+  pattern = c(
+    "Aconitum lycoctonum",
+    "Aconitum septentrionale",
+    "Agrostis hyemalis",
+    "Anagallis minima",
+    "Antennaria lapponica",
+    "Antennaria porsildii",
+    "Arabis wahlenbergii",
+    "Arctous alpinus",
+    "Aristavena setacea",
+    "Atriplex lapponica",  
+    "Atriplex praecox",    
+    "Artemisia rupestris",
+    "Betula tortuosa",
+    "Blysmopsis rufa",
+    "Cardamine dentata",
+    "Cardamine nymanii",
+    "Carex adelostoma",
+    "Carex concolor",
+    "Carex leersii",
+    "Carex mackenziei",
+    "Carex myosuroides",
+    "Carex paupercula",
+    "Carex simpliciuscula",
+    "Carex viridula",
+    "Carex xvacillans",
+    "Chamaepericlymenum suecicum",
+    "Chamerion angustifolium",
+    "Cherleria biflora",
+    "Cicerbita alpina",
+    "Cirsium acaulon",
+    "Clinopodium acinos",
+    "Cornus suecia",
+    "Cotoneaster scandinavicus",
+    "Cotoneaster symondsii",
+    "Cyanus montanus",
+    "Dactylorhiza viridis",
+    "Diphasiastrum alpinum",
+    "Diphasiastrum complanatum",
+    "Dryopteris affinis",
+    "Empetrum hermaphroditum",
+    "Elymus alaskanus",
+    "Elymus repens",
+    "Epilobium angustifolium",
+    "Erysimum virgatum",
+    "Euphrasia frigida",
+    "Festuca prolifera",
+    "Festuca trachyphylla",
+    "Galium album",
+    "Galium elongatum",
+    "Hedlundia meinichii",
+    "Helictotrichon pratense",
+    "Helictotrichon pubescens",
+    "Hieracium alpina",
+    "Hieracium alpinum",
+    "Hieracium hieracium",
+    "Hieracium hieracioides",
+    "Hieracium murorum",
+    "Hieracium oreadea",
+    "Hieracium prenanthoidea",
+    "Hieracium pilosella",
+    "Hieracium vulgata",
+    "Hieracium vulgatum",
+    "Huperzia appressa",
+    "Huperzia arctica",
+    "Hylotelephium maximum",
+    "Juncus arcuatus",
+    "Kali turgida",
+    "Leontodon autumnalis",
+    "Lepidotheca suaveolens",
+    "Listera cordata",
+    "Listera ovata",
+    "Loiseleuria procumbens",
+    "Luzula pallidula",
+    "Lychnis alpina",
+    "Matricaria discoidea",
+    "Minuartia rubella",
+    "Minuartia stricta",
+    "Mycelis muralis",
+    "Omalotheca norvegica",
+    "Omalotheca supina",
+    "Omalotheca sylvatica",
+    "Ononis arvensis",
+    "Oreopteris limbosperma",
+    "Oxycoccus microcarpus",
+    "Oxycoccus palustris",
+    "Papaver dahlianum",   
+    "Papaver lapponicum",  
+    "Pentanema salicinum",
+    "Phalaris minor",
+    "Pilosella peletariana",
+    "Pinus unicinata",
+    "Poa alpigena",
+    "Poa angustifolia",
+    "Poa humilis",
+    "Polygonum boreale",   
+    "Polygonum excelsius", 
+    "Polygonum norvegicum",
+    "Potentilla anserina",
+    "Potentilla arenosa",
+    "Potentilla tabernaemontani",
+    "Puccinellia retroflexa",
+    "Pyrola grandiflora",
+    "Pyrola norvegica",
+    "Rosa dumalis",
+    "Rosa vosagica",
+    "Roegneria canina",
+    "Rubus fruticosus",
+    "Rumex alpestris",
+    "Rumex graminifolius",
+    "Salicornia pojarkovae",
+    "Schedonorus elatior",
+    "Sedum maximum",
+    "Sedum telephium",
+    "Selinum carvifolium",
+    "Sorbus hybrida",
+    "Spergula marina",
+    "Spergularia salina",
+    "Stellaria uliginosa",
+    "Syringa emodi",
+    "Taraxacum crocea",
+    "Taraxacum croceum",
+    "Thinopyrum junceiforme",
+    "Trientalis europaea",
+    "Trifolium pallidum",
+    "Veratrum lobelianum"
+  ),
+  replacement = c(
+    "Aconitum septentrionale",
+    "Aconitum lycoctonum",
+    "Agrostis scabra",
+    "Lysimachia minima",
+    "Antennaria alpina",
+    "Antennaria alpina",
+    "Arabis hirsuta",
+    "Arctous alpina",
+    "Deschampsia setacea",
+    "Atriplex longipes",
+    "Atriplex longipes",
+    "Artemisia norvegica",
+    "Betula pubescens",
+    "Blysmus rufus",
+    "Cardamine pratensis",
+    "Cardamine pratensis",
+    "Carex buxbaumii",
+    "Carex aquatilis",
+    "Carex echinata",
+    "Carex norvegica",
+    "Kobresia myosuroides",
+    "Carex magellanica",
+    "Kobresia simpliciuscula",
+    "Carex flava",
+    "Carex vacillans",
+    "Cornus suecia",
+    "Chamaenerion angustifolium",
+    "Minuartia biflora",
+    "Lactuca alpina",
+    "Cirsium acaule",
+    "Acinos arvensis",
+    "Cornus suecica",
+    "Cotoneaster integerrimus",
+    "Cotoneaster simonsii",
+    "Centaurea montana",
+    "Coeloglossum viride",
+    "Lycopodium alpinum",
+    "Lycopodium complanatum",
+    "Dryopteris filix-mas",
+    "Empetrum nigrum",
+    "Elymus kronokensis",
+    "Elytrigia repens",
+    "Chamaenerion angustifolium",
+    "Erysimum strictum",
+    "Euphrasia wettsteinii",
+    "Festuca rubra",
+    "Festuca brevipila",
+    "Galium mollugo",
+    "Galium palustre",
+    "Sorbus aucuparia",
+    "Avenula pratensis",
+    "Avenula pubescens",
+    "Hieracium Alpina",
+    "Hieracium Alpina",
+    "Hieracium Hieracium",
+    "Hieracium umbellatum",
+    "Hieracium Vulgata",
+    "Hieracium Oreadea",
+    "Hieracium Prenanthoidea",
+    "Pilosella officinarum",
+    "Hieracium Vulgata",
+    "Hieracium umbellatum",
+    "Huperzia selago",
+    "Huperzia selago",
+    "Hylotelephium telephium",
+    "Luzula arcuata",
+    "Kali turgidum",
+    "Scorzoneroides autumnalis",
+    "Matricaria discoidea",
+    "Neottia cordata",
+    "Neottia ovata",
+    "Kalmia procumbens",
+    "Luzula pallescens",
+    "Viscaria alpina",
+    "Matricaria discoidea",
+    "Sabulina rubella",
+    "Sabulina stricta",
+    "Lactuca muralis",
+    "Gnaphalium norvegicum",
+    "Gnaphalium supinum",
+    "Gnaphalium sylvaticum",
+    "Ononis spinosa",
+    "Thelypteris limbosperma",
+    "Vaccinium microcarpum",
+    "Vaccinium oxycoccos",
+    "Papaver radicatum",
+    "Papaver radicatum",
+    "Inula salicina",
+    "Phalaris arundinacea",
+    "Pilosella officinarum",
+    "Pinus mugo",
+    "Poa pratensis",
+    "Poa pratensis",
+    "Poa pratensis",
+    "Polygonum oxyspermum",
+    "Argentina anserina",
+    "Potentilla nivea",
+    "Potentilla verna",
+    "Puccinellia capillaris",
+    "Pyrola rotundifolia",
+    "Pyrola rotundifolia",
+    "Rosa vosagiaca",
+    "Rosa vosagiaca",
+    "Elymus caninus",
+    "Rubus plicatus",
+    "Rumex acetosa",
+    "Rumex acetosella",
+    "Salicornia procumbens",
+    "Schedonorus arundinaceus",
+    "Hylotelephium telephium",
+    "Hylotelephium telephium",
+    "Selinum carvifolia",
+    "Hedlundia hybrida",
+    "Spergularia marina",
+    "Spergularia marina",
+    "Stellaria alsine",
+    "Syringa vulgaris",
+    "Taraxacum officinale",
+    "Taraxacum officinale",
+    "Elytrigia juncea",
+    "Lysimachia europaea",
+    "Trifolium pratense",
+    "Veratrum album"
+  )
+)
+
+clean_species_from_dictionary <- function(x, dict = species_dict_pattern) {
+  x_clean <- x
+  for (k in seq_len(nrow(dict))) {
+    pat  <- dict$pattern[k]
+    repl <- dict$replacement[k]
+    x_clean[grepl(pat, x_clean)] <- repl
+  }
+  x_clean
+}
+```
+
+
 ```{r dataHandling_Tyler, warning=F} 
 #, message=F, results='hide'
 
@@ -182,18 +450,7 @@ ind_tyler <- ind_tyler |>
   tibble()
 
 ind_tyler <- ind_tyler |> 
-  mutate(
-    scientific_name = case_when(
-      grepl("Aconitum lycoctonum", scientific_name) ~ "Aconitum septentrionale",
-      grepl("Carex simpliciuscula", scientific_name) ~ "Kobresia simpliciuscula",
-      grepl("Carex myosuroides", scientific_name) ~ "Kobresia myosuroides",
-      grepl("Clinopodium acinos", scientific_name) ~ "Acinos arvensis",
-      grepl("Artemisia rupestris", scientific_name) ~ "Artemisia norvegica",
-      grepl("Cherleria biflora", scientific_name) ~ "Minuartia biflora",
-      grepl("Rosa vosagica", scientific_name) ~ "Rosa vosagiaca",
-      TRUE ~ scientific_name
-    )
-  )
+  mutate(scientific_name = clean_species_with_patterns(species, species_dict_pattern))
 
 # remove certain species
 ind_tyler <- ind_tyler |>  
@@ -385,35 +642,7 @@ GRUK_species <- GRUK_species |>
 
 # update species names
 GRUK_species <- GRUK_species |> 
-  mutate(
-    scientific_name = case_when(
-      grepl("Arabis wahlenbergii",       scientific_name) ~ "Arabis hirsuta",
-      grepl("Carex paupercula",          scientific_name) ~ "Carex magellanica",
-      grepl("Carex viridula",            scientific_name) ~ "Carex flava",
-      grepl("Cotoneaster scandinavicus", scientific_name) ~ "Cotoneaster integerrimus",
-      grepl("Cotoneaster symondsii",     scientific_name) ~ "Cotoneaster simonsii",
-      grepl("Cyanus montanus",           scientific_name) ~ "Centaurea montana",
-      grepl("Erysimum virgatum",         scientific_name) ~ "Erysimum strictum",
-      grepl("Festuca trachyphylla",      scientific_name) ~ "Festuca brevipila",
-      grepl("Galium album",              scientific_name) ~ "Galium mollugo",
-      grepl("Helictotrichon pratense",   scientific_name) ~ "Avenula pratensis",
-      grepl("Helictotrichon pubescens",  scientific_name) ~ "Avenula pubescens",
-      grepl("Hieracium murorum",         scientific_name) ~ "Hieracium Vulgata",
-      grepl("Hieracium vulgatum",        scientific_name) ~ "Hieracium Vulgata",
-      grepl("Hylotelephium maximum",     scientific_name) ~ "Hylotelephium telephium",
-      grepl("Sedum telephium",           scientific_name) ~ "Hylotelephium telephium",
-      grepl("Lepidotheca suaveolens",    scientific_name) ~ "Matricaria discoidea",
-      #grepl("Malus × domestica",          scientific_name) ~ "Malus domestica",
-      grepl("Pilosella peletariana",     scientific_name) ~ "Pilosella officinarum",
-      grepl("Poa angustifolia",          scientific_name) ~ "Poa pratensis",
-      grepl("Poa humilis",               scientific_name) ~ "Poa pratensis",
-      grepl("Rosa dumalis",              scientific_name) ~ "Rosa vosagiaca",
-      grepl("Sorbus hybrida",            scientific_name) ~ "Hedlundia hybrida",
-      grepl("Spergularia salina",        scientific_name) ~ "Spergularia marina",
-      grepl("Trifolium pallidum",        scientific_name) ~ "Trifolium pratense",
-      TRUE ~ scientific_name
-    )
-  )
+  mutate(scientific_name = clean_species_with_patterns(species, species_dict_pattern))
 
 GRUK_prepared_wfo <- WFO.prepare(GRUK_species$scientific_name)
 
@@ -806,29 +1035,7 @@ ASO_species <- ASO_species |>
   )
 
 ASO_species <- ASO_species  |>  
-  mutate(scientific_name = recode(
-    scientific_name,
-    "Cardamine dentata"           = "Cardamine pratensis",
-    "Chamaepericlymenum suecicum" = "Cornus suecica",
-    "Chamerion angustifolium"     = "Chamaenerion angustifolium",
-    "Cicerbita alpina"            = "Lactuca alpina",
-    "Galium album"                = "Galium mollugo",
-    "Helictotrichon pratense"     = "Avenula pratensis",
-    "Helictotrichon pubescens"    = "Avenula pubescens",
-    "Hieracium murorum"           = "Hieracium Vulgata",
-    "Hieracium vulgatum"          = "Hieracium umbellatum",
-    "Hylotelephium maximum"       = "Hylotelephium telephium",
-    "Sedum maximum"               = "Hylotelephium telephium",
-    "Listera cordata"             = "Neottia cordata",
-    "Listera ovata"               = "Neottia ovata",
-    "Omalotheca norvegica"        = "Gnaphalium norvegicum",
-    "Omalotheca sylvatica"        = "Gnaphalium sylvaticum",
-    "Oreopteris limbosperma"      = "Thelypteris limbosperma",
-    "Potentilla anserina"         = "Argentina anserina",
-    "Rosa dumalis"                = "Rosa vosagiaca",
-    "Rubus fruticosus"            = "Rubus plicatus",
-    "Rumex alpestris"             = "Rumex acetosa"
-  ))
+  mutate(scientific_name = clean_species_with_patterns(species, species_dict_pattern))
 
 
 # filter out NAs for WFO cleaning
@@ -1009,83 +1216,7 @@ ano_species <- ano_species |>
 
 # recode species names for WFO matching
 ano_species <- ano_species |> 
-  mutate(scientific_name = case_when(
-      grepl("Agrostis hyemalis",              scientific_name) ~ "Agrostis scabra",
-      grepl("Antennaria lapponica",           scientific_name) ~ "Antennaria alpina",
-      grepl("Antennaria porsildii",           scientific_name) ~ "Antennaria alpina",
-      grepl("Arctous alpinus",                scientific_name) ~ "Arctous alpina",
-      grepl("Betula tortuosa",                scientific_name) ~ "Betula pubescens",
-      grepl("Blysmopsis rufa",                scientific_name) ~ "Blysmus rufus",
-      grepl("Cardamine nymanii",              scientific_name) ~ "Cardamine pratensis",
-      grepl("Carex adelostoma",               scientific_name) ~ "Carex buxbaumii",
-      grepl("Carex concolor",                 scientific_name) ~ "Carex aquatilis",
-      grepl("Carex leersii",                  scientific_name) ~ "Carex echinata",
-      grepl("Carex myosuroides",              scientific_name) ~ "Kobresia myosuroides",
-      grepl("Carex paupercula",               scientific_name) ~ "Carex magellanica",
-      grepl("Carex simpliciuscula",           scientific_name) ~ "Kobresia simpliciuscula",
-      grepl("Carex viridula",                 scientific_name) ~ "Carex flava",
-      grepl("Chamaepericlymenum suecicum",    scientific_name) ~ "Cornus suecia",
-      grepl("Cicerbita alpina",               scientific_name) ~ "Lactuca alpina",
-      grepl("Cornus suecia",                  scientific_name) ~ "Cornus suecica",
-      grepl("Cotoneaster scandinavicus",      scientific_name) ~ "Cotoneaster integerrimus",
-      grepl("Dactylorhiza viridis",           scientific_name) ~ "Coeloglossum viride",
-      grepl("Diphasiastrum alpinum",          scientific_name) ~ "Lycopodium alpinum",
-      grepl("Diphasiastrum complanatum",      scientific_name) ~ "Lycopodium complanatum",
-      grepl("Dryopteris affinis",             scientific_name) ~ "Dryopteris filix-mas",
-      grepl("Empetrum hermaphroditum",        scientific_name) ~ "Empetrum nigrum",
-      grepl("Elymus alaskanus",               scientific_name) ~ "Elymus kronokensis",
-      grepl("Festuca prolifera",              scientific_name) ~ "Festuca rubra",
-      grepl("Galium album",                   scientific_name) ~ "Galium mollugo",
-      grepl("Galium elongatum",               scientific_name) ~ "Galium palustre",
-      grepl("Helictotrichon pratense",        scientific_name) ~ "Avenula pratensis",
-      grepl("Helictotrichon pubescens",       scientific_name) ~ "Avenula pubescens",
-      grepl("Hieracium alpina",               scientific_name) ~ "Hieracium Alpina",
-      grepl("Hieracium alpinum",              scientific_name) ~ "Hieracium Alpina",
-      grepl("Hieracium hieracium",            scientific_name) ~ "Hieracium Hieracium",
-      grepl("Hieracium hieracioides",         scientific_name) ~ "Hieracium umbellatum",
-      grepl("Hieracium murorum",              scientific_name) ~ "Hieracium Vulgata",
-      grepl("Hieracium oreadea",              scientific_name) ~ "Hieracium Oreadea",
-      grepl("Hieracium prenanthoidea",        scientific_name) ~ "Hieracium Prenanthoidea",
-      grepl("Hieracium vulgata",              scientific_name) ~ "Hieracium Vulgata",
-      grepl("Hieracium pilosella",            scientific_name) ~ "Pilosella officinarum",
-      grepl("Hieracium vulgatum",             scientific_name) ~ "Hieracium umbellatum",
-      #grepl("Hierochloã« alpina",             scientific_name) ~ "Hierochloë alpina",
-      #grepl("Hierochloã« hirta",              scientific_name) ~ "Hierochloë hirta",
-      #grepl("Hierochloã« odorata",            scientific_name) ~ "Hierochloë odorata",
-      grepl("Huperzia appressa",              scientific_name) ~ "Huperzia selago",
-      grepl("Huperzia arctica",               scientific_name) ~ "Huperzia selago",
-      grepl("Hylotelephium maximum",          scientific_name) ~ "Hylotelephium telephium",
-      grepl("Listera cordata",                scientific_name) ~ "Neottia cordata",
-      grepl("Leontodon autumnalis",           scientific_name) ~ "Scorzoneroides autumnalis",
-      grepl("Loiseleuria procumbens",         scientific_name) ~ "Kalmia procumbens",
-      grepl("Minuartia rubella",              scientific_name) ~ "Sabulina rubella",
-      grepl("Minuartia stricta",              scientific_name) ~ "Sabulina stricta",
-      grepl("Mycelis muralis",                scientific_name) ~ "Lactuca muralis",
-      grepl("Omalotheca supina",              scientific_name) ~ "Gnaphalium supinum",
-      grepl("Omalotheca norvegica",           scientific_name) ~ "Gnaphalium norvegicum",
-      grepl("Omalotheca sylvatica",           scientific_name) ~ "Gnaphalium sylvaticum",
-      grepl("Oreopteris limbosperma",         scientific_name) ~ "Thelypteris limbosperma",
-      grepl("Oxycoccus microcarpus",          scientific_name) ~ "Vaccinium microcarpum",
-      grepl("Oxycoccus palustris",            scientific_name) ~ "Vaccinium oxycoccos",
-      grepl("Phalaris minor",                 scientific_name) ~ "Phalaris arundinacea",
-      grepl("Pinus unicinata",                scientific_name) ~ "Pinus mugo",
-      grepl("Poa alpigena",                   scientific_name) ~ "Poa pratensis",
-      grepl("Poa angustifolia",               scientific_name) ~ "Poa pratensis",
-      #grepl("Poa ×jemtlandica",               scientific_name) ~ "Poa alpina",
-      grepl("Potentilla anserina",            scientific_name) ~ "Argentina anserina",
-      grepl("Potentilla arenosa",             scientific_name) ~ "Potentilla nivea",
-      grepl("Pyrola grandiflora",             scientific_name) ~ "Pyrola rotundifolia",
-      grepl("Rubus fruticosus",               scientific_name) ~ "Rubus plicatus",
-      grepl("Rumex alpestris",                scientific_name) ~ "Rumex acetosa",
-      grepl("Stellaria uliginosa",            scientific_name) ~ "Stellaria alsine",
-      grepl("Syringa emodi",                  scientific_name) ~ "Syringa vulgaris",
-      grepl("Taraxacum crocea",               scientific_name) ~ "Taraxacum officinale",
-      grepl("Taraxacum croceum",              scientific_name) ~ "Taraxacum officinale",
-      grepl("Trientalis europaea",           scientific_name) ~ "Lysimachia europaea",
-      grepl("Trifolium pallidum",            scientific_name) ~ "Trifolium pratense",
-      grepl("Veratrum lobelianum",           scientific_name) ~ "Veratrum album",
-      TRUE ~ scientific_name)
-      )
+  mutate(scientific_name = clean_species_with_patterns(species, species_dict_pattern))
 
 ano_prepared_wfo <- ano_species |> 
   distinct(scientific_name, scientific_name_original)
@@ -1331,15 +1462,6 @@ natopen_NiN_ref <- natopen_NiN_ref |>
     # |> filter(spgr != "a1a")
   ) |>
   select(-sp.orig) |> 
-  ########################### put this part back if there are issues pivoting the table later on
-  #group_by(species) |> 
-  #summarise(
-  #  across(
-  #    where(is.numeric),  # all numeric columns (e.g. abundances)
-  #    ~ sum(.x, na.rm = TRUE)
-  #  ),
-  #  .groups = "drop"
-  #) |> 
   pivot_longer(
     cols = -c(species, Phylum),     # columns to pivot
     names_to   = "nin_id",                                   # new column for former column names
@@ -1349,58 +1471,7 @@ natopen_NiN_ref <- natopen_NiN_ref |>
 
 
 natopen_NiN_ref <- natopen_NiN_ref %>%
-  mutate(
-    species = case_match(
-      species,
-      "Aconitum septentrionale"   ~ "Aconitum lycoctonum",
-      "Anagallis minima"          ~ "Lysimachia minima",
-      "Arabis wahlenbergii"       ~ "Arabis hirsuta",
-      "Aristavena setacea"        ~ "Deschampsia setacea",
-      "Atriplex lapponica"        ~ "Atriplex longipes",
-      "Atriplex praecox"          ~ "Atriplex longipes",
-      "Blysmopsis rufa"           ~ "Blysmus rufus",
-      "Carex mackenziei"          ~ "Carex norvegica",
-      "Carex xvacillans"          ~ "Carex vacillans",
-      "Cicerbita alpina"          ~ "Lactuca alpina",
-      "Cirsium acaulon"           ~ "Cirsium acaule",
-      "Cotoneaster scandinavicus" ~ "Cotoneaster integerrimus",
-      "Dactylorhiza viridis"      ~ "Coeloglossum viride",
-      "Elymus alaskanus"          ~ "Elymus kronokensis",
-      "Elymus repens"             ~ "Elytrigia repens",
-      "Epilobium angustifolium"   ~ "Chamaenerion angustifolium",
-      "Erysimum virgatum"         ~ "Erysimum strictum",
-      "Euphrasia frigida"         ~ "Euphrasia wettsteinii",
-      "Hedlundia meinichii"       ~ "Sorbus aucuparia",
-      "Hylotelephium maximum"     ~ "Hylotelephium telephium",
-      "Juncus arcuatus"           ~ "Luzula arcuata",
-      "Kali turgida"              ~ "Kali turgidum",
-      "Kobresia myosuroides"      ~ "Carex myosuroides",
-      "Luzula pallidula"          ~ "Luzula pallescens",
-      "Lychnis alpina"            ~ "Viscaria alpina",
-      "Minuartia rubella"         ~ "Sabulina rubella",
-      "Minuartia stricta"         ~ "Sabulina stricta",
-      "Ononis arvensis"           ~ "Ononis spinosa",
-      "Papaver dahlianum"         ~ "Papaver radicatum",
-      "Papaver lapponicum"        ~ "Papaver radicatum",
-      "Pentanema salicinum"       ~ "Inula salicina",
-      "Poa alpigena"              ~ "Poa pratensis",
-      "Poa humilis"               ~ "Poa pratensis",
-      "Polygonum boreale"         ~ "Polygonum aviculare",
-      "Polygonum excelsius"       ~ "Polygonum aviculare",
-      "Polygonum norvegicum"      ~ "Polygonum oxyspermum",
-      "Potentilla tabernaemontani"~ "Potentilla verna",
-      "Puccinellia retroflexa"    ~ "Puccinellia capillaris",
-      "Pyrola norvegica"          ~ "Pyrola rotundifolia",
-      "Roegneria canina"          ~ "Elymus caninus",
-      "Rumex graminifolius"       ~ "Rumex acetosella",
-      "Salicornia pojarkovae"     ~ "Salicornia procumbens",
-      "Schedonorus elatior"       ~ "Schedonorus arundinaceus",
-      "Selinum carvifolium"       ~ "Selinum carvifolia",
-      "Spergula marina"           ~ "Spergularia marina",
-      "Spergularia salina"        ~ "Spergularia marina",
-      "Thinopyrum junceiforme"    ~ "Elytrigia juncea",
-      .default = species
-    )) |> 
+  mutate(species = clean_species_with_patterns(species, species_dict_pattern)) |> 
   group_by(species, nin_id) |> 
   summarise(cover = max(cover),           # summing cover of species which have ended up appearing several times per nature type
     .groups = "drop"
@@ -1477,8 +1548,6 @@ natop_nin_species_clean <- left_join(natop_nin_prepared, natop_nin_sp_clean, by 
   distinct()
 
 natop_nin_species_clean |> filter(is.na(accepted_name))
-
-
 
 
 # Merge with indicator values
@@ -2591,7 +2660,7 @@ mu <- mu_draws_reg |>
 
 
 ```{r tbl-results}
-#| tbl-cap: 'Indicator values and 95% confidence intervals fro NO_FUMO_004, calculated for Norwegian alpine ecosystems.'
+#| tbl-cap: 'Indicator values and 95% confidence intervals for NO_FUMO_005, calculated for Norwegian open lowland ecosystems.'
 mu |>
   group_by(part) |>
   summarise(
